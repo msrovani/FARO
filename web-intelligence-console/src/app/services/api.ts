@@ -5,21 +5,12 @@ import {
   AnalystDecision,
   AnalystFeedbackEvent,
   AnalystFeedbackTemplate,
-  FeedbackRecipient,
-  AnalystReview,
-  AnalystReviewStatus,
-  AlgorithmResult,
-  User,
-  VehicleObservation,
-  ObservationDetail,
-  IntelligenceQueueItem,
-  FeedbackForAgent,
-  Alert,
-  AlertRule,
-  RoutePattern,
+  DashboardPriorityBucket,
   DashboardStats,
-  WatchlistEntry,
+  FeedbackForAgent,
+  IntelligenceQueueItem,
   WatchlistCategory,
+  WatchlistEntry,
   WatchlistStatus,
   IntelligenceCase,
   AuditLogEntry,
@@ -30,6 +21,23 @@ import {
   SuspicionReason,
   ReviewStatus,
   ApiError,
+  Agency,
+  Alert,
+  AlertRule,
+  RoutePattern,
+  ObservationDetail,
+  RouteTimeline,
+  RouteComparison,
+  RoutePrediction,
+  RoutePredictionForPlate,
+  PatternDriftAlert,
+  RecurringRouteAlert,
+  SuspiciousRoute,
+  SuspiciousRouteMatch,
+  HotspotAnalysis,
+  HotspotTimeline,
+  HotspotPlates,
+  AlertAggregated,
 } from '@/app/types';
 
 // Create axios instance
@@ -422,6 +430,12 @@ export const dashboardApi = {
   getStats: async (agencyId?: string): Promise<DashboardStats> => {
     const params = agencyId ? { agency_id: agencyId } : {};
     const response = await api.get('/intelligence/analytics/overview', { params });
+    return response.data;
+  },
+
+  getAgencies: async (agencyType?: string): Promise<{ agencies: Agency[]; total: number }> => {
+    const params = agencyType ? { agency_type: agencyType } : {};
+    const response = await api.get('/intelligence/agencies', { params });
     return response.data;
   },
 

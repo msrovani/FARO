@@ -46,6 +46,7 @@ from app.db.base import (
     WatchlistStatus,
     ConvoyEvent,
     CaseStatus,
+    Agency,
 )
 from app.schemas.analytics import (
     AlgorithmResultResponse,
@@ -63,6 +64,11 @@ from app.schemas.analytics import (
     ObservationAnalyticDetailResponse,
     SuspicionScoreFactorResponse,
     SuspicionScoreResponse,
+    QueueScoreSummary,
+)
+from app.schemas.agency import (
+    AgencyResponse,
+    AgencyListResponse,
 )
 from app.schemas.common import GeolocationPoint, PaginationParams
 from app.schemas.intelligence import (
@@ -151,12 +157,36 @@ def get_agency_scope_filter(current_user: User, column):
     - REGIONAL: Sees their agency + child local agencies
     - CENTRAL: Sees all agencies (like ADMIN)
     """
+    from sqlalchemy import or_
+    from app.db.base import Agency, AgencyType
+    
     if current_user.role == UserRole.ADMIN:
         return True  # No filter
     
     # For now, return simple agency filter
-    # TODO: Implement hierarchy-based filtering
+    # TODO: Implement hierarchy-based filtering with child agencies
+    # This requires loading the user's agency and its type, then filtering accordingly
     return column == current_user.agency_id
+
+
+async def get_user_agency_with_hierarchy(current_user: User, db: AsyncSession) -> Agency | None:
+    """Load user's agency with hierarchy information."""
+    from app.db.base import Agency
+    
+    result = await db.execute(
+        select(Agency).where(Agency.id == current_user.agency_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_child_agency_ids(parent_agency_id: str, db: AsyncSession) -> list[str]:
+    """Get all child agency IDs for a parent agency."""
+    from app.db.base import Agency
+    
+    result = await db.execute(
+        select(Agency.id).where(Agency.parent_agency_id == parent_agency_id)
+    )
+    return [row[0] for row in result.all()]
 
 
 def serialize_watchlist_entry(entry: WatchlistEntry, creator_name: str | None) -> WatchlistEntryResponse:
@@ -1681,6 +1711,43 @@ async def get_observations_by_day(
         {"date": bucket.date().isoformat(), "count": int(count)}
         for bucket, count in rows
     ]
+
+
+@router.get("/agencies")
+async def list_agencies(
+    agency_type: str | None = None,
+    current_user: User = Depends(require_intelligence_role),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List agencies with optional filter by type (local/regional/central).
+    Users can only see agencies within their scope based on hierarchy.
+    """
+    from app.db.base import AgencyType
+    
+    query = select(Agency).where(Agency.is_active == True)
+    
+    # Filter by type if specified
+    if agency_type:
+        try:
+            agency_type_enum = AgencyType(agency_type)
+            query = query.where(Agency.type == agency_type_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid agency type: {agency_type}")
+    
+    # Apply agency scope filter based on user role and hierarchy
+    if current_user.role != UserRole.ADMIN:
+        # For now, simple filter - user sees their own agency
+        # TODO: Implement full hierarchy filtering (child agencies)
+        query = query.where(Agency.id == current_user.agency_id)
+    
+    result = await db.execute(query)
+    agencies = result.scalars().all()
+    
+    return AgencyListResponse(
+        agencies=[AgencyResponse.model_validate(agency) for agency in agencies],
+        total=len(agencies),
+    )
 
 
 @router.get("/analytics/top-plates")

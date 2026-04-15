@@ -14,12 +14,23 @@ export default function DashboardPage() {
   const [feedbacks, setFeedbacks] = useState<FeedbackForAgent[]>([]);
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [selectedAgency, setSelectedAgency] = useState<string | undefined>(undefined);
+  const [selectedAgencyType, setSelectedAgencyType] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    void loadAgencies();
     void loadConsole();
-  }, [selectedAgency]);
+  }, [selectedAgency, selectedAgencyType]);
+
+  async function loadAgencies() {
+    try {
+      const response = await dashboardApi.getAgencies(selectedAgencyType || undefined);
+      setAgencies(response.agencies);
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
   async function loadConsole() {
     try {
@@ -94,9 +105,21 @@ export default function DashboardPage() {
           className="flex-1 rounded-lg border-0 bg-transparent text-sm font-medium text-gray-700 focus:ring-2 focus:ring-blue-500"
         >
           <option value="">Todas as Agências (Minha Visão)</option>
-          <option value="local">Agências Locais</option>
-          <option value="regional">Agências Regionais</option>
-          <option value="central">Agência Central</option>
+          {agencies.map((agency) => (
+            <option key={agency.id} value={agency.id}>
+              {agency.name} ({agency.type})
+            </option>
+          ))}
+        </select>
+        <select
+          value={selectedAgencyType}
+          onChange={(e) => setSelectedAgencyType(e.target.value)}
+          className="rounded-lg border border-gray-200 bg-transparent px-3 py-1 text-sm font-medium text-gray-700 focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">Todos os tipos</option>
+          <option value="local">Local</option>
+          <option value="regional">Regional</option>
+          <option value="central">Central</option>
         </select>
       </div>
 

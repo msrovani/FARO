@@ -391,8 +391,21 @@ Mobile (captura criptografada) → HTTPS sync → Server (PostgreSQL+MinIO) → 
 - Visão: Mapas, rotas, hotspots ao nível estadual (agregado)
 
 ### 16.3 Próximos Passos
-- Implementar hierarchy-based filtering completo (child agencies)
-- Criar dashboards específicos por nível de agência
-- Adicionar endpoints para listar agências por tipo
-- Testing com usuários de cada nível
-- Deployment incremental (local → regional → central)
+- ✅ Implementar hierarchy-based filtering completo (child agencies) - Helper functions adicionadas
+- ✅ Criar dashboards específicos por nível de agência - Selector dinâmico implementado
+- ✅ Adicionar endpoints para listar agências por tipo - `/intelligence/agencies` endpoint criado
+- ⏳ Testing com usuários de cada nível - Pendente
+- ⏳ Deployment incremental (local → regional → central) - Pendente
+
+### 16.4 Implementação Complementar (Fase 2.1 - 2026-04-15)
+**Backend:**
+- `app/schemas/agency.py`: Schemas para Agency (Create, Response, Update, List)
+- `app/schemas/__init__.py`: Adicionados Agency schemas
+- `app/api/v1/endpoints/intelligence.py`: Endpoint `/intelligence/agencies` com filtro por tipo
+- `get_user_agency_with_hierarchy()`: Função auxiliar para carregar agência com hierarquia
+- `get_child_agency_ids()`: Função auxiliar para buscar agências filhas
+
+**Web Intelligence Console:**
+- `src/app/services/api.ts`: `dashboardApi.getAgencies()` para listar agências
+- `src/app/page.tsx`: Selector dinâmico de agência com filtro por tipo
+- Reload automático ao mudar agência ou tipo

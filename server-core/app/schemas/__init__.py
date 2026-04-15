@@ -65,6 +65,12 @@ from app.schemas.sync import (
     SyncBatchResponse,
     SyncQueueItem,
 )
+from app.schemas.agency import (
+    AgencyCreate,
+    AgencyResponse,
+    AgencyUpdate,
+    AgencyListResponse,
+)
 from app.schemas.common import (
     PaginationParams,
     PaginatedResponse,
@@ -127,6 +133,11 @@ __all__ = [
     "SyncBatchRequest",
     "SyncBatchResponse",
     "SyncQueueItem",
+    # Agency schemas
+    "AgencyCreate",
+    "AgencyResponse",
+    "AgencyUpdate",
+    "AgencyListResponse",
     # Common schemas
     "PaginationParams",
     "PaginatedResponse",

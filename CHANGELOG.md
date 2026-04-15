@@ -1,10 +1,10 @@
 # Changelog F.A.R.O.
 
-## [1.3.0] - 2026-04-15
+## [1.3.1] - 2026-04-15
 
-### BI Institucional com Hierarquia de Agências
+### BI Institucional - Fase 2.1
 
-#### Hierarquia de Agências
+#### Hierarquia de Agências Complementar
 - **Backend**:
   - `AgencyType` enum: LOCAL, REGIONAL, CENTRAL
   - Campos `type` e `parent_agency_id` adicionados ao modelo Agency
