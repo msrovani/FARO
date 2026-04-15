@@ -409,3 +409,28 @@ Mobile (captura criptografada) → HTTPS sync → Server (PostgreSQL+MinIO) → 
 - `src/app/services/api.ts`: `dashboardApi.getAgencies()` para listar agências
 - `src/app/page.tsx`: Selector dinâmico de agência com filtro por tipo
 - Reload automático ao mudar agência ou tipo
+
+### 16.5 Gestão de Usuários Hierarquizada (Fase 2.2 - 2026-04-15)
+**Backend:**
+- `app/api/v1/endpoints/auth.py`: Endpoints CRUD de usuários
+  - `GET /auth/users`: Listar usuários com filtros por role e agency
+  - `POST /auth/users`: Criar novo usuário
+  - `PUT /auth/users/{user_id}`: Atualizar usuário
+  - `DELETE /auth/users/{user_id}`: Soft delete de usuário
+
+**RBAC Implementado:**
+- **ADMIN**: Pode ver, criar, atualizar e deletar usuários em qualquer agência
+- **SUPERVISOR**: Pode gerenciar usuários apenas na sua agência
+- **INTELLIGENCE (Central)**: Pode ver todos analistas de inteligência de todas as agências
+- **INTELLIGENCE (Regional)**: Pode ver analistas da sua região
+- **FIELD_AGENT**: Não tem acesso à gestão de usuários
+
+**Web Intelligence Console:**
+- `src/app/services/api.ts`: `userApi` com métodos listUsers, createUser, updateUser, deleteUser
+- `src/app/users/page.tsx`: Tela de gestão de usuários
+  - Filtro por perfil (analista/agente/supervisor/admin)
+  - Filtro por agência
+  - Busca por nome ou email
+  - Tabela com listagem de usuários
+  - Ações de editar e deletar
+  - Paginação

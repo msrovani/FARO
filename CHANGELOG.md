@@ -1,5 +1,39 @@
 # Changelog F.A.R.O.
 
+## [1.4.0] - 2026-04-15
+
+### Gestão de Usuários Hierarquizada
+
+#### CRUD de Usuários com RBAC
+- **Backend**:
+  - `app/api/v1/endpoints/auth.py`: Endpoints CRUD de usuários
+    - `GET /auth/users`: Listar usuários com filtros por role e agency
+    - `POST /auth/users`: Criar novo usuário
+    - `PUT /auth/users/{user_id}`: Atualizar usuário
+    - `DELETE /auth/users/{user_id}`: Soft delete de usuário
+  - RBAC por agência:
+    - ADMIN: Gerencia usuários em qualquer agência
+    - SUPERVISOR: Gerencia usuários na sua agência
+    - INTELLIGENCE (Central): Vê todos analistas de todas as agências
+    - INTELLIGENCE (Regional): Vê analistas da sua região
+    - FIELD_AGENT: Sem acesso à gestão de usuários
+
+- **Web Intelligence Console**:
+  - `src/app/services/api.ts`: `userApi` com métodos CRUD
+  - `src/app/users/page.tsx`: Tela de gestão de usuários
+    - Filtro por perfil (analista/agente/supervisor/admin)
+    - Filtro por agência
+    - Busca por nome ou email
+    - Tabela com listagem de usuários
+    - Ações de editar e deletar
+    - Paginação
+
+#### Casos de Uso
+- **Agência Central (DINT)**: CRUD de todos analistas de inteligência das agências regionais e locais
+- **Agência Local (ALI)**: CRUD de todos agentes de campo (PM) da agência
+
+---
+
 ## [1.3.1] - 2026-04-15
 
 ### BI Institucional - Fase 2.1

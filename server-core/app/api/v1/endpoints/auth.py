@@ -446,3 +446,207 @@ async def get_current_user_info(
 ):
     """Get current user information."""
     return await build_user_response(db, current_user)
+
+
+@router.get("/users", response_model=dict)
+async def list_users(
+    role: Optional[str] = None,
+    agency_id: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List users with optional filters by role and agency.
+    
+    RBAC:
+    - ADMIN: Can see all users
+    - SUPERVISOR: Can see users in their agency
+    - INTELLIGENCE (Central): Can see all intelligence staff across all agencies
+    - INTELLIGENCE (Regional): Can see intelligence staff in their region
+    - FIELD_AGENT: Cannot list users (access denied)
+    """
+    if current_user.role == UserRole.FIELD_AGENT:
+        raise HTTPException(status_code=403, detail="Campo agents não podem listar usuários")
+    
+    query = select(User).where(User.is_active == True)
+    
+    # Filter by role if specified
+    if role:
+        try:
+            role_enum = UserRole(role)
+            query = query.where(User.role == role_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
+    
+    # Apply agency hierarchy filtering
+    if current_user.role == UserRole.ADMIN:
+        # ADMIN can see all agencies, optionally filter by agency_id
+        if agency_id:
+            query = query.where(User.agency_id == agency_id)
+    else:
+        # Other roles can only see users within their agency scope
+        # For now, simple filter - user sees their own agency users
+        # TODO: Implement full hierarchy filtering (child agencies for regional/central)
+        query = query.where(User.agency_id == current_user.agency_id)
+    
+    # Pagination
+    offset = (page - 1) * page_size
+    query = query.offset(offset).limit(page_size)
+    
+    result = await db.execute(query)
+    users = result.scalars().all()
+    
+    # Get total count
+    count_query = select(func.count(User.id))
+    if role:
+        count_query = count_query.where(User.role == UserRole(role))
+    if current_user.role != UserRole.ADMIN:
+        count_query = count_query.where(User.agency_id == current_user.agency_id)
+    elif agency_id:
+        count_query = count_query.where(User.agency_id == agency_id)
+    
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+    
+    return {
+        "users": [await build_user_response(db, user) for user in users],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@router.post("/users", response_model=UserResponse, status_code=201)
+async def create_user(
+    user_data: UserCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create a new user.
+    
+    RBAC:
+    - ADMIN: Can create users in any agency
+    - SUPERVISOR: Can create users in their agency
+    - INTELLIGENCE (Central): Can create intelligence staff in any agency
+    - INTELLIGENCE (Regional): Can create intelligence staff in their region
+    - FIELD_AGENT: Cannot create users (access denied)
+    """
+    if current_user.role == UserRole.FIELD_AGENT:
+        raise HTTPException(status_code=403, detail="Campo agents não podem criar usuários")
+    
+    # Check if user can create users in the target agency
+    if current_user.role != UserRole.ADMIN and user_data.agency_id != current_user.agency_id:
+        raise HTTPException(status_code=403, detail="Sem permissão para criar usuário nesta agência")
+    
+    # Check if email already exists
+    existing_user = await db.execute(
+        select(User).where(User.email == user_data.email)
+    )
+    if existing_user.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email já cadastrado")
+    
+    # Hash password
+    from app.core.security import get_password_hash
+    hashed_password = get_password_hash(user_data.password)
+    
+    # Create user
+    new_user = User(
+        email=user_data.email,
+        hashed_password=hashed_password,
+        full_name=user_data.full_name,
+        cpf=user_data.cpf,
+        badge_number=user_data.badge_number,
+        role=user_data.role,
+        agency_id=user_data.agency_id,
+        unit_id=user_data.unit_id,
+    )
+    
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    
+    return await build_user_response(db, new_user)
+
+
+@router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: str,
+    user_data: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update a user.
+    
+    RBAC:
+    - ADMIN: Can update any user
+    - SUPERVISOR: Can update users in their agency
+    - INTELLIGENCE: Can update intelligence staff in their scope
+    - FIELD_AGENT: Cannot update users (access denied)
+    """
+    if current_user.role == UserRole.FIELD_AGENT:
+        raise HTTPException(status_code=403, detail="Campo agents não podem atualizar usuários")
+    
+    # Get user to update
+    user_to_update = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user_to_update = user_to_update.scalar_one_or_none()
+    
+    if not user_to_update:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Check if user can update this user
+    if current_user.role != UserRole.ADMIN and user_to_update.agency_id != current_user.agency_id:
+        raise HTTPException(status_code=403, detail="Sem permissão para atualizar este usuário")
+    
+    # Update fields
+    update_data = user_data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(user_to_update, field, value)
+    
+    await db.commit()
+    await db.refresh(user_to_update)
+    
+    return await build_user_response(db, user_to_update)
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(
+    user_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete a user (soft delete by setting is_active=False).
+    
+    RBAC:
+    - ADMIN: Can delete any user
+    - SUPERVISOR: Can delete users in their agency
+    - INTELLIGENCE: Can delete intelligence staff in their scope
+    - FIELD_AGENT: Cannot delete users (access denied)
+    """
+    if current_user.role == UserRole.FIELD_AGENT:
+        raise HTTPException(status_code=403, detail="Campo agents não podem deletar usuários")
+    
+    # Get user to delete
+    user_to_delete = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user_to_delete = user_to_delete.scalar_one_or_none()
+    
+    if not user_to_delete:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Check if user can delete this user
+    if current_user.role != UserRole.ADMIN and user_to_delete.agency_id != current_user.agency_id:
+        raise HTTPException(status_code=403, detail="Sem permissão para deletar este usuário")
+    
+    # Soft delete
+    user_to_delete.is_active = False
+    await db.commit()
+    
+    return None

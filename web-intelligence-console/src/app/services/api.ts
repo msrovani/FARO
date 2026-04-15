@@ -461,13 +461,34 @@ export const dashboardApi = {
   },
 
   getUnitPerformance: async (): Promise<Array<{
-    unit_id: string;
     unit_name: string;
     observation_count: number;
-    confirmation_rate: number;
+    suspicion_rate: number;
   }>> => {
     const response = await api.get('/intelligence/analytics/unit-performance');
     return response.data;
+  },
+};
+
+// User Management API
+export const userApi = {
+  listUsers: async (params?: { role?: string; agency_id?: string; page?: number; page_size?: number }) => {
+    const response = await api.get('/auth/users', { params });
+    return response.data;
+  },
+
+  createUser: async (userData: any) => {
+    const response = await api.post('/auth/users', userData);
+    return response.data;
+  },
+
+  updateUser: async (userId: string, userData: any) => {
+    const response = await api.put(`/auth/users/${userId}`, userData);
+    return response.data;
+  },
+
+  deleteUser: async (userId: string) => {
+    await api.delete(`/auth/users/${userId}`);
   },
 };
 
