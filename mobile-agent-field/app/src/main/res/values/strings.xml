@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">F.A.R.O.</string>
+    <string name="app_full_name">Ferramenta de Análise de Rotas e Observações</string>
+    
+    <!-- Actions -->
+    <string name="action_register">Registrar Veículo</string>
+    <string name="action_history">Histórico</string>
+    <string name="action_sync">Sincronizar</string>
+    <string name="action_feedback">Feedback</string>
+    <string name="action_save">Salvar</string>
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_confirm">Confirmar</string>
+    <string name="action_back">Voltar</string>
+    
+    <!-- Labels -->
+    <string name="label_plate">Placa</string>
+    <string name="label_location">Localização</string>
+    <string name="label_suspicion">Suspeição</string>
+    <string name="label_sync_status">Status de Sincronização</string>
+    <string name="label_pending">Pendentes</string>
+    <string name="label_synced">Sincronizados</string>
+    
+    <!-- Messages -->
+    <string name="msg_offline_mode">Modo offline - dados serão sincronizados quando houver conectividade</string>
+    <string name="msg_sync_success">Sincronização concluída</string>
+    <string name="msg_sync_error">Erro na sincronização</string>
+    <string name="msg_ocr_detected">OCR Detectado</string>
+    <string name="msg_confirm_plate">Confirme ou corrija a placa</string>
+    
+    <!-- Errors -->
+    <string name="error_network">Erro de conexão</string>
+    <string name="error_server">Erro no servidor</string>
+    <string name="error_invalid_plate">Placa inválida</string>
+    <string name="error_location_required">Localização necessária</string>
+    
+    <!-- Suspicions -->
+    <string name="suspicion_stolen_vehicle">Veículo Roubado</string>
+    <string name="suspicion_suspicious_behavior">Comportamento Suspeito</string>
+    <string name="suspicion_wanted_plate">Placa Monitorada</string>
+    <string name="suspicion_unusual_hours">Horário Incomum</string>
+    <string name="suspicion_known_associate">Associado Conhecido</string>
+    <string name="suspicion_drug_trafficking">Tráfico de Drogas</string>
+    <string name="suspicion_weapons">Armas</string>
+    <string name="suspicion_gang_activity">Atividade de Facção</string>
+    <string name="suspicion_other">Outro</string>
+    
+    <!-- Levels -->
+    <string name="level_low">Baixo</string>
+    <string name="level_medium">Médio</string>
+    <string name="level_high">Alto</string>
+    
+    <!-- Urgency -->
+    <string name="urgency_monitor">Apenas Monitorar</string>
+    <string name="urgency_intelligence">Inteligência</string>
+    <string name="urgency_approach">Abordagem Recomendada</string>
+</resources>

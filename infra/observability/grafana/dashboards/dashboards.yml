@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'FARO Dashboards'
+    orgId: 1
+    folder: 'F.A.R.O.'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

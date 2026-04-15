@@ -1,0 +1,64 @@
+groups:
+  - name: faro-server-alerts
+    rules:
+      - alert: FaroServerDown
+        expr: up{job="faro-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: faro-server
+        annotations:
+          summary: "FARO server indisponivel"
+          description: "O endpoint /metrics do faro-server nao responde ha mais de 1 minuto."
+
+      - alert: FaroHigh5xxRate
+        expr: sum(rate(faro_http_requests_total{status_code=~"5.."}[5m])) / clamp_min(sum(rate(faro_http_requests_total[5m])), 0.001) > 0.05
+        for: 5m
+        labels:
+          severity: high
+          service: faro-server
+        annotations:
+          summary: "Taxa elevada de erro 5xx"
+          description: "Mais de 5% das respostas HTTP do FARO estao em 5xx por 5 minutos."
+
+      - alert: FaroP95LatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(faro_http_request_duration_seconds_bucket[5m]))) > 1.5
+        for: 10m
+        labels:
+          severity: medium
+          service: faro-server
+        annotations:
+          summary: "Latencia p95 elevada no FARO"
+          description: "Latencia p95 acima de 1.5s por pelo menos 10 minutos."
+
+  - name: faro-domain-alerts
+    rules:
+      - alert: FaroQueueBacklogSpike
+        expr: histogram_quantile(0.95, sum(rate(faro_queue_items_returned_bucket[15m])) by (le)) > 80
+        for: 10m
+        labels:
+          severity: high
+          domain: queue
+        annotations:
+          summary: "Pico de backlog na fila analitica"
+          description: "Consultas recentes da fila estao retornando alto volume de itens (p95 > 80)."
+
+      - alert: FaroSyncFailureRateHigh
+        expr: sum(rate(faro_sync_items_total{status="failed"}[10m])) / clamp_min(sum(rate(faro_sync_items_total[10m])), 0.001) > 0.15
+        for: 10m
+        labels:
+          severity: high
+          domain: sync
+        annotations:
+          summary: "Taxa alta de falhas no sync"
+          description: "Mais de 15% dos itens de sincronizacao estao falhando nos ultimos 10 minutos."
+
+      - alert: FaroFeedbackPendingGrowing
+        expr: histogram_quantile(0.95, sum(rate(faro_feedback_pending_items_bucket[15m])) by (le)) > 20
+        for: 15m
+        labels:
+          severity: medium
+          domain: feedback
+        annotations:
+          summary: "Acumulo de feedback pendente ao campo"
+          description: "Quantidade de feedback pendente retornada ao campo esta alta por periodo prolongado."
