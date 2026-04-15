@@ -297,10 +297,102 @@ Mobile (captura criptografada) → HTTPS sync → Server (PostgreSQL+MinIO) → 
 
 **Credenciais:** Solicitar via SELOG/PMMS (processo administrativo)
 
-## 14. Proximos passos recomendados
+## 14. Quick Wins Implementados (Fase 1 - 2026-04-15)
+
+### 14.1 Push Notification em Tempo Real (WebSocket)
+**Backend:**
+- `app/services/websocket_service.py` - WebSocketConnectionManager para gerenciar conexões
+- `app/api/v1/endpoints/websocket.py` - Endpoints WebSocket para usuário e broadcast
+- Configurações em `config.py`: `websocket_enabled`, `websocket_ping_interval`, `websocket_max_connections`
+- Integração com feedback: notificação enviada via WebSocket quando feedback é criado
+- Router adicionado em `app/api/routes.py`
+
+**Mobile:**
+- `app/src/main/java/com/faro/mobile/data/websocket/WebSocketManager.kt` - Cliente WebSocket
+- Conexão por usuário para notificações personalizadas
+- Reconexão automática com exponential backoff
+- Gerenciamento de estado de conexão e notificações
+
+**Rollback:** Desabilitar via `websocket_enabled=false` no config. Fallback para sync em lote.
+
+### 14.2 Auto-OCR com Threshold
+**Backend:**
+- Configurações em `config.py`: `ocr_auto_accept_enabled`, `ocr_auto_accept_threshold` (default 0.85)
+- `ocr_confidence_threshold` já existente (default 0.7)
+
+**Mobile:**
+- `PlateCaptureScreen.kt` atualizado com lógica de auto-aceitação
+- Variáveis `autoOcrEnabled` e `autoOcrThreshold` configuráveis
+- Auto-aceita OCR quando `confidence >= threshold` (default 0.85)
+- Fallback manual sempre disponível
+
+**Rollback:** Desabilitar via `ocr_auto_accept_enabled=false`. Fallback para OCR assistido.
+
+### 14.3 Priorização Automática da Fila
+**Backend:**
+- Configurações em `config.py`: `queue_auto_prioritization_enabled`, `queue_score_weight` (0.6), `queue_urgency_weight` (0.4), `queue_score_threshold` (0.7)
+- `intelligence.py` - Enhanced queue ordering com composite score
+- Quando habilitado: ordena por urgency + SuspicionScore * score_weight
+- Fallback para FIFO manual (urgency + time) quando desabilitado
+
+**Rollback:** Desabilitar via `queue_auto_prioritization_enabled=false`. Fallback para fila FIFO manual.
+
+### 14.4 Upload Progressivo de Assets
+**Backend:**
+- Configurações em `config.py`: `progressive_upload_enabled`, `progressive_upload_chunk_size_mb` (5), `progressive_upload_max_retries` (3)
+- `storage_service.py` - `upload_observation_asset_progressive()` e `complete_progressive_upload()`
+- Suporte a multipart upload com chunking
+- Retry automático com abort on error
+- Endpoint `/mobile/observations/{id}/assets/progressive` em `mobile.py`
+
+**Rollback:** Desabilitar via `progressive_upload_enabled=false`. Fallback para upload após sync.
+
+## 15. Proximos passos recomendados
 
 1. implementar conector oficial da base estadual no adapter existente
 2. adicionar `gradlew` ao mobile e pipeline de build Android
 3. criar testes de integracao backend com Postgres/PostGIS/Redis
 4. calibrar thresholds dos 7 algoritmos em dataset operacional
 5. reforcar observabilidade por dominio (fila, sync, feedback, rotas)
+6. habilitar WebSocket, auto-OCR, priorização e upload progressivo via config após testing
+
+## 16. BI Institucional Implementado (Fase 2 - 2026-04-15)
+
+### 16.1 Hierarquia de Agências
+**Backend:**
+- `app/db/base.py`: Adicionado `AgencyType` enum (LOCAL, REGIONAL, CENTRAL)
+- `app/db/base.py`: Adicionados campos `type` e `parent_agency_id` ao modelo Agency
+- `alembic/versions/0006_agency_hierarchy.py`: Migration para hierarquia de agências
+
+**RBAC:**
+- `app/api/v1/endpoints/intelligence.py`: `get_agency_scope_filter()` para filtros por nível
+- `app/api/v1/endpoints/intelligence.py`: Extended `scoped_query()` com suporte a hierarquia
+- `app/api/v1/endpoints/intelligence.py`: `/analytics/overview` com parâmetro `agency_id`
+
+**Web Intelligence Console:**
+- `src/app/types/index.ts`: Adicionado `AgencyType` e interface `Agency`
+- `src/app/services/api.ts`: `dashboardApi.getStats()` aceita `agencyId` opcional
+- `src/app/page.tsx`: Selector de agência com filtros (local/regional/central)
+
+### 16.2 Visão por Nível de Agência
+**Agências Locais:**
+- Responsáveis por validação de insights/suspeição dos agentes de campo
+- Escopo: Batalhões, regimentos, companhias independentes
+- Visão: Mapas, rotas, hotspots ao nível local
+
+**Agências Regionais:**
+- Responsáveis por visão analítica regional
+- Escopo: Região do estado com agências locais
+- Visão: Mapas, rotas, hotspots ao nível regional (agregado)
+
+**Agência Central:**
+- Responsável por visão analítica estadual
+- Escopo: Todo o estado com agências regionais
+- Visão: Mapas, rotas, hotspots ao nível estadual (agregado)
+
+### 16.3 Próximos Passos
+- Implementar hierarchy-based filtering completo (child agencies)
+- Criar dashboards específicos por nível de agência
+- Adicionar endpoints para listar agências por tipo
+- Testing com usuários de cada nível
+- Deployment incremental (local → regional → central)

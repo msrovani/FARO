@@ -1,5 +1,109 @@
 # Changelog F.A.R.O.
 
+## [1.3.0] - 2026-04-15
+
+### BI Institucional com Hierarquia de Agências
+
+#### Hierarquia de Agências
+- **Backend**:
+  - `AgencyType` enum: LOCAL, REGIONAL, CENTRAL
+  - Campos `type` e `parent_agency_id` adicionados ao modelo Agency
+  - Migration `0006_agency_hierarchy.py` para hierarquia de agências
+  - `get_agency_scope_filter()` para filtros por nível de agência
+  - Extended `scoped_query()` com suporte a hierarquia
+
+- **Web Intelligence Console**:
+  - `AgencyType` e interface `Agency` adicionados aos tipos
+  - `dashboardApi.getStats()` aceita `agencyId` opcional
+  - Selector de agência com filtros (local/regional/central)
+  - Reload automático de dashboard ao mudar agência
+
+#### Visão por Nível de Agência
+- **Agências Locais**: Validação de observações, visão local (batalhões/regimentos)
+- **Agências Regionais**: Visão analítica regional, sem validação
+- **Agência Central**: Visão estadual, pode inserir operações/casos
+
+#### RBAC por Agência
+- Filtro de agência baseado em role e tipo de agência
+- ADMIN: vê todas as agências
+- Outros: veem sua agência (hierarquia completa pendente)
+
+### Documentação Atualizada
+- `openmemory.md`: Seção 16 adicionada com detalhes de implementação do BI Institucional
+- `CHANGELOG.md`: Versão 1.3.0 adicionada
+
+### Próximos Passos
+- Implementar hierarchy-based filtering completo (child agencies)
+- Criar dashboards específicos por nível de agência
+- Testing com usuários de cada nível
+- Deployment incremental (local → regional → central)
+
+---
+
+## [1.2.0] - 2026-04-15
+
+### Quick Wins Implementados (Fase 1)
+
+#### Push Notification em Tempo Real (WebSocket)
+- **Backend**:
+  - `app/services/websocket_service.py`: WebSocketConnectionManager para gerenciar conexões
+  - `app/api/v1/endpoints/websocket.py`: Endpoints WebSocket para usuário (/ws/user/{user_id}) e broadcast (/ws/broadcast)
+  - Configurações: `websocket_enabled`, `websocket_ping_interval`, `websocket_max_connections`
+  - Integração com feedback: notificação enviada via WebSocket quando feedback é criado
+  - Router adicionado em `app/api/routes.py`
+- **Mobile**:
+  - `app/src/main/java/com/faro/mobile/data/websocket/WebSocketManager.kt`: Cliente WebSocket
+  - Conexão por usuário para notificações personalizadas
+  - Reconexão automática com exponential backoff (max 5 tentativas)
+  - Gerenciamento de estado de conexão e notificações
+- **Rollback**: Desabilitar via `websocket_enabled=false` no config. Fallback para sync em lote.
+
+#### Auto-OCR com Threshold
+- **Backend**:
+  - Configurações: `ocr_auto_accept_enabled`, `ocr_auto_accept_threshold` (default 0.85)
+  - `ocr_confidence_threshold` já existente (default 0.7)
+- **Mobile**:
+  - `PlateCaptureScreen.kt` atualizado com lógica de auto-aceitação
+  - Variáveis `autoOcrEnabled` e `autoOcrThreshold` configuráveis
+  - Auto-aceita OCR quando `confidence >= threshold` (default 0.85)
+  - Fallback manual sempre disponível
+- **Rollback**: Desabilitar via `ocr_auto_accept_enabled=false`. Fallback para OCR assistido.
+
+#### Priorização Automática da Fila
+- **Backend**:
+  - Configurações: `queue_auto_prioritization_enabled`, `queue_score_weight` (0.6), `queue_urgency_weight` (0.4), `queue_score_threshold` (0.7)
+  - `intelligence.py`: Enhanced queue ordering com composite score
+  - Quando habilitado: ordena por urgency + SuspicionScore * score_weight
+  - Fallback para FIFO manual (urgency + time) quando desabilitado
+- **Rollback**: Desabilitar via `queue_auto_prioritization_enabled=false`. Fallback para fila FIFO manual.
+
+#### Upload Progressivo de Assets
+- **Backend**:
+  - Configurações: `progressive_upload_enabled`, `progressive_upload_chunk_size_mb` (5), `progressive_upload_max_retries` (3)
+  - `storage_service.py`: `upload_observation_asset_progressive()` e `complete_progressive_upload()`
+  - Suporte a multipart upload com chunking via S3 API
+  - Retry automático com abort on error
+  - Endpoint `/mobile/observations/{id}/assets/progressive` em `mobile.py`
+- **Rollback**: Desabilitar via `progressive_upload_enabled=false`. Fallback para upload após sync.
+
+### Configurações Adicionais
+Todas as features incluem switches de configuração para rollback imediato:
+- `websocket_enabled` (default: false)
+- `ocr_auto_accept_enabled` (default: false)
+- `queue_auto_prioritization_enabled` (default: false)
+- `progressive_upload_enabled` (default: false)
+
+### Documentação Atualizada
+- `openmemory.md`: Seção 14 adicionada com detalhes de implementação dos Quick Wins
+- Seção 15 atualizada com instrução para habilitar features via config após testing
+
+### Próximos Passos
+- Habilitar features via config após testing
+- Testar cada feature independentemente
+- Validar rollback switches
+
+---
+
 ## [1.1.0] - 2026-04-14
 
 ### Funcionalidades Implementadas

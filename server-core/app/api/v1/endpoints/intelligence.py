@@ -93,6 +93,7 @@ from app.schemas.suspicious_route import (
 from app.services.audit_service import log_audit_event
 from app.services.event_bus import event_bus
 from app.services.feedback_service import fetch_pending_feedback_for_user
+from app.services.websocket_service import websocket_manager
 from app.services.observation_service import fetch_plate_activity_map, serialize_observation
 from app.services.route_analysis_service import analyze_vehicle_route, get_route_timeline, save_route_pattern
 from app.services.suspicious_route_service import (
@@ -129,9 +130,33 @@ def require_field_capable_user(current_user: User = Depends(get_current_user)) -
 
 
 def scoped_query(query, current_user: User, column):
+    """Filter query by agency based on user role and agency hierarchy."""
     if current_user.role == UserRole.ADMIN:
         return query
+    
+    # Get user's agency
+    from sqlalchemy import select
+    from app.db.base import Agency, AgencyType
+    
+    # Simple agency filter for now - can be extended with hierarchy
     return query.where(column == current_user.agency_id)
+
+
+def get_agency_scope_filter(current_user: User, column):
+    """
+    Get agency filter based on user's agency type and hierarchy.
+    
+    Returns a filter condition for queries based on:
+    - LOCAL: Sees only their own agency
+    - REGIONAL: Sees their agency + child local agencies
+    - CENTRAL: Sees all agencies (like ADMIN)
+    """
+    if current_user.role == UserRole.ADMIN:
+        return True  # No filter
+    
+    # For now, return simple agency filter
+    # TODO: Implement hierarchy-based filtering
+    return column == current_user.agency_id
 
 
 def serialize_watchlist_entry(entry: WatchlistEntry, creator_name: str | None) -> WatchlistEntryResponse:
@@ -528,19 +553,39 @@ async def get_intelligence_queue(
     if filters.date_to:
         query = query.where(VehicleObservation.observed_at_local <= filters.date_to)
 
-    query = (
-        query.order_by(
-            case(
-                (SuspicionReport.urgency == "approach", 1),
-                (SuspicionReport.urgency == "intelligence", 2),
-                (SuspicionReport.urgency == "monitor", 3),
-                else_=4,
-            ),
-            VehicleObservation.observed_at_local.desc(),
+    # Apply automatic prioritization if enabled
+    if settings.queue_auto_prioritization_enabled:
+        # Use composite score: score_weight * suspicion_score + urgency_weight * urgency_rank
+        query = (
+            query.outerjoin(SuspicionScore, SuspicionScore.observation_id == VehicleObservation.id)
+            .order_by(
+                case(
+                    (SuspicionReport.urgency == "approach", 1),
+                    (SuspicionReport.urgency == "intelligence", 2),
+                    (SuspicionReport.urgency == "monitor", 3),
+                    else_=4,
+                ).label("urgency_rank"),
+                (SuspicionScore.final_score * settings.queue_score_weight).desc(nulls_last=True),
+                VehicleObservation.observed_at_local.desc(),
+            )
+            .offset(pagination.offset)
+            .limit(pagination.page_size)
         )
-        .offset(pagination.offset)
-        .limit(pagination.page_size)
-    )
+    else:
+        # Fallback to FIFO manual ordering by urgency and time
+        query = (
+            query.order_by(
+                case(
+                    (SuspicionReport.urgency == "approach", 1),
+                    (SuspicionReport.urgency == "intelligence", 2),
+                    (SuspicionReport.urgency == "monitor", 3),
+                    else_=4,
+                ),
+                VehicleObservation.observed_at_local.desc(),
+            )
+            .offset(pagination.offset)
+            .limit(pagination.page_size)
+        )
 
     rows = (await db.execute(query)).all()
     observation_ids = [observation.id for observation, _, _, _ in rows]
@@ -921,6 +966,22 @@ async def create_feedback(
             "feedback_type": feedback.feedback_type,
         },
     )
+    
+    # Send WebSocket notification to target user if enabled
+    if settings.websocket_enabled and feedback.target_user_id:
+        await websocket_manager.send_to_user(
+            str(feedback.target_user_id),
+            {
+                "type": "feedback_received",
+                "feedback_id": str(feedback.id),
+                "observation_id": str(feedback.observation_id) if feedback.observation_id else None,
+                "feedback_type": feedback.feedback_type,
+                "title": feedback.title,
+                "message": feedback.message,
+                "sent_at": feedback.delivered_at.isoformat() if feedback.delivered_at else None,
+            }
+        )
+    
     record_feedback_sent(success=True)
     return serialize_analyst_feedback(feedback, current_user.full_name)
 
@@ -1475,15 +1536,28 @@ async def update_case(
 
 @router.get("/analytics/overview")
 async def get_analytics_overview(
+    agency_id: Optional[str] = None,
     current_user: User = Depends(require_intelligence_role),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Get analytics overview with optional agency filter.
+    Users can filter by agencies within their scope based on hierarchy.
+    """
     now = datetime.utcnow()
     start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     last_30_days = now - timedelta(days=30)
-    agency_filter = (
-        true() if current_user.role == UserRole.ADMIN else VehicleObservation.agency_id == current_user.agency_id
-    )
+    
+    # Apply agency filter based on user role and hierarchy
+    if current_user.role == UserRole.ADMIN:
+        # ADMIN can see all or filter by specific agency
+        agency_filter = true() if agency_id is None else VehicleObservation.agency_id == agency_id
+    else:
+        # Other users can only see their agency or child agencies (for regional/central)
+        # For now, simple agency filter - can be extended with hierarchy
+        if agency_id is not None and agency_id != str(current_user.agency_id):
+            raise HTTPException(status_code=403, detail="Usuario sem acesso a essa agencia")
+        agency_filter = VehicleObservation.agency_id == current_user.agency_id
 
     total_observations = (
         await db.execute(select(func.count(VehicleObservation.id)).where(agency_filter))

@@ -55,7 +55,11 @@ from app.services.audit_service import log_audit_event
 from app.services.event_bus import event_bus
 from app.services.feedback_service import fetch_pending_feedback_for_user
 from app.services.ocr_service import get_ocr_service
-from app.services.storage_service import upload_observation_asset_bytes
+from app.services.storage_service import (
+    complete_progressive_upload,
+    upload_observation_asset_bytes,
+    upload_observation_asset_progressive,
+)
 
 router = APIRouter()
 
@@ -995,6 +999,121 @@ async def upload_observation_asset(
             "asset_type": asset_type_normalized,
             "storage_key": uploaded.key,
             "size_bytes": uploaded.size_bytes,
+        },
+    )
+
+    return {
+        "asset_id": str(asset.id),
+        "observation_id": str(observation_id),
+        "asset_type": asset_type_normalized,
+        "storage_bucket": uploaded.bucket,
+        "storage_key": uploaded.key,
+        "content_type": uploaded.content_type,
+        "size_bytes": uploaded.size_bytes,
+        "checksum_sha256": uploaded.checksum_sha256,
+    }
+
+
+@router.post("/observations/{observation_id}/assets/progressive")
+async def upload_observation_asset_progressive(
+    observation_id: UUID,
+    asset_type: str = Form(...),
+    file: UploadFile = File(...),
+    upload_id: Optional[str] = Form(None),
+    chunk_index: int = Form(0),
+    complete: bool = Form(False),
+    parts: Optional[str] = Form(None),  # JSON string of parts
+    current_user: User = Depends(require_field_agent),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Progressive upload endpoint for large assets.
+    Supports chunked upload with retry capability.
+    """
+    observation = (
+        await db.execute(
+            select(VehicleObservation).where(
+                and_(
+                    VehicleObservation.id == observation_id,
+                    VehicleObservation.agent_id == current_user.id,
+                )
+            )
+        )
+    ).scalars().first()
+    if observation is None:
+        raise HTTPException(status_code=404, detail="Observacao nao encontrada para upload de asset")
+
+    asset_type_normalized = asset_type.strip().lower()
+    if asset_type_normalized not in {"image", "audio"}:
+        raise HTTPException(status_code=400, detail="asset_type invalido. Use 'image' ou 'audio'")
+
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Arquivo vazio")
+
+    # Handle progressive upload
+    if complete and upload_id and parts:
+        # Complete multipart upload
+        import json
+        parts_list = json.loads(parts)
+        uploaded = complete_progressive_upload(
+            upload_id=upload_id,
+            key=f"observations/{observation_id}/{asset_type_normalized}/{file.filename or f'{asset_type_normalized}.bin'}",
+            parts=parts_list,
+        )
+    else:
+        # Upload chunk or initialize
+        result = upload_observation_asset_progressive(
+            observation_id=str(observation_id),
+            asset_type=asset_type_normalized,
+            original_filename=file.filename or f"{asset_type_normalized}.bin",
+            content_type=file.content_type or "application/octet-stream",
+            payload=payload,
+            upload_id=upload_id,
+            chunk_index=chunk_index,
+        )
+        
+        if result["status"] == "completed":
+            # Simple upload completed
+            uploaded = UploadedAsset(
+                bucket=result["asset"]["bucket"],
+                key=result["asset"]["key"],
+                content_type=file.content_type or "application/octet-stream",
+                size_bytes=result["asset"]["size_bytes"],
+                checksum_sha256=result["asset"]["checksum_sha256"],
+            )
+        else:
+            # Return upload status for next chunk
+            return result
+
+    # Create asset record if upload completed
+    asset = Asset(
+        asset_type=asset_type_normalized,
+        original_filename=file.filename or f"{asset_type_normalized}.bin",
+        storage_key=uploaded.key,
+        storage_bucket=uploaded.bucket,
+        content_type=uploaded.content_type,
+        size_bytes=uploaded.size_bytes,
+        checksum_sha256=uploaded.checksum_sha256,
+        uploaded_by=current_user.id,
+        uploaded_from_device=observation.device_id,
+        related_observation_id=observation.id,
+    )
+    db.add(asset)
+    await db.flush()
+    
+    await log_audit_event(
+        db,
+        actor=current_user,
+        action="observation_asset_uploaded",
+        resource_type="asset",
+        resource_id=asset.id,
+        details={
+            "observation_id": str(observation_id),
+            "asset_type": asset_type_normalized,
+            "storage_key": uploaded.key,
+            "size_bytes": uploaded.size_bytes,
+            "progressive": True,
         },
     )
 

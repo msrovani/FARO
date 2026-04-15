@@ -419,8 +419,9 @@ export const routesApi = {
 
 // Dashboard/Analytics API
 export const dashboardApi = {
-  getStats: async (): Promise<DashboardStats> => {
-    const response = await api.get('/intelligence/analytics/overview');
+  getStats: async (agencyId?: string): Promise<DashboardStats> => {
+    const params = agencyId ? { agency_id: agencyId } : {};
+    const response = await api.get('/intelligence/analytics/overview', { params });
     return response.data;
   },
 

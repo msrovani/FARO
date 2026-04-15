@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     ocr_service_url: Optional[str] = Field(default=None)
     ocr_fallback_enabled: bool = Field(default=True)
     ocr_confidence_threshold: float = Field(default=0.7)
+    ocr_auto_accept_enabled: bool = Field(default=False)
+    ocr_auto_accept_threshold: float = Field(default=0.85)
     
     # Rate Limiting
     rate_limit_requests: int = Field(default=100)
@@ -94,6 +96,17 @@ class Settings(BaseSettings):
     route_time_window_hours: int = Field(default=72)
     route_spatial_buffer_meters: int = Field(default=500)
     
+    # Queue Prioritization
+    queue_auto_prioritization_enabled: bool = Field(default=False)
+    queue_score_weight: float = Field(default=0.6)
+    queue_urgency_weight: float = Field(default=0.4)
+    queue_score_threshold: float = Field(default=0.7)
+    
+    # Progressive Upload
+    progressive_upload_enabled: bool = Field(default=False)
+    progressive_upload_chunk_size_mb: int = Field(default=5)
+    progressive_upload_max_retries: int = Field(default=3)
+    
     # Audit & Compliance
     audit_retention_days: int = Field(default=2555)  # 7 years
     audit_sensitive_operations: List[str] = Field(default=[
@@ -108,6 +121,12 @@ class Settings(BaseSettings):
     prometheus_port: int = Field(default=9090)
     log_level: str = Field(default="INFO")
     structured_logging: bool = Field(default=True)
+    
+    # WebSocket / Push Notifications
+    websocket_enabled: bool = Field(default=False)
+    websocket_ping_interval: int = Field(default=20)
+    websocket_ping_timeout: int = Field(default=30)
+    websocket_max_connections: int = Field(default=1000)
     
     @field_validator("cors_origins", mode="before")
     @classmethod

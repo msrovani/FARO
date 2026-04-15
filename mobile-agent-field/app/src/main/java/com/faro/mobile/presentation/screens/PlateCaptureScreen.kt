@@ -65,6 +65,8 @@ fun PlateCaptureScreen(
     var plateNumber by remember { mutableStateOf("") }
     var ocrSuggestion by remember { mutableStateOf("") }
     var ocrConfidence by remember { mutableFloatStateOf(0.0f) }
+    var autoOcrEnabled by remember { mutableStateOf(true) }
+    var autoOcrThreshold by remember { mutableFloatStateOf(0.85f) }
     var suspicionReason by remember { mutableStateOf<SuspicionReason?>(SuspicionReason.SUSPICIOUS_BEHAVIOR) }
     var suspicionLevel by remember { mutableStateOf(SuspicionLevel.MEDIUM) }
     var urgencyLevel by remember { mutableStateOf(UrgencyLevel.INTELLIGENCE) }
@@ -73,7 +75,11 @@ fun PlateCaptureScreen(
     val onTextRecognized: (String, Float) -> Unit = { text, confidence ->
         ocrSuggestion = text
         ocrConfidence = confidence
-        if (plateNumber.isBlank() && confidence > 0.6f) {
+        // Auto-accept OCR if enabled and confidence meets threshold
+        if (autoOcrEnabled && confidence >= autoOcrThreshold) {
+            plateNumber = text
+        } else if (plateNumber.isBlank() && confidence > 0.6f) {
+            // Fallback to lower threshold for suggestion
             plateNumber = text
         }
     }

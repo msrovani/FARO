@@ -75,6 +75,13 @@ class UserRole(str, PyEnum):
     ADMIN = "admin"
 
 
+class AgencyType(str, PyEnum):
+    """Agency hierarchy level for intelligence organization."""
+    LOCAL = "local"  # Agência local de inteligência (batalhões/regimentos)
+    REGIONAL = "regional"  # Agência regional (agrega agências locais)
+    CENTRAL = "central"  # Agência central (estado inteiro)
+
+
 class SuspicionLevel(str, PyEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -271,10 +278,28 @@ class Agency(Base):
         String(50), nullable=False, unique=True, index=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    
+    # Hierarchy fields
+    type: Mapped[AgencyType] = mapped_column(
+        Enum(AgencyType, name="agencytype", create_constraint=True),
+        nullable=False,
+        default=AgencyType.LOCAL,
+    )
+    parent_agency_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("agency.id"),
+        nullable=True,
+        index=True,
+    )
 
     # Relationships
     users: Mapped[List["User"]] = relationship(back_populates="agency")
     units: Mapped[List["Unit"]] = relationship(back_populates="agency")
+    parent_agency: Mapped[Optional["Agency"]] = relationship(
+        "Agency",
+        remote_side="Agency.id",
+        backref="child_agencies",
+    )
 
 
 class User(Base):

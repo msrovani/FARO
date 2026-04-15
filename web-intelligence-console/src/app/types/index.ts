@@ -263,6 +263,19 @@ export interface DashboardStats {
   watchlist_hits?: number;
 }
 
+export type AgencyType = 'local' | 'regional' | 'central';
+
+export interface Agency {
+  id: string;
+  name: string;
+  code: string;
+  type: AgencyType;
+  parent_agency_id?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DashboardPriorityBucket {
   label: string;
   description: string;

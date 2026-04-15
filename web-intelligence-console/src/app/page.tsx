@@ -2,29 +2,31 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, Clock3, Eye, Radar, ShieldAlert, Siren, TimerReset, Waypoints } from "lucide-react";
+import { AlertTriangle, ArrowRight, Clock3, Eye, Radar, ShieldAlert, Siren, TimerReset, Waypoints, Building2 } from "lucide-react";
 
 import { ConsoleShell } from "@/app/components/console-shell";
 import { dashboardApi, intelligenceApi } from "@/app/services/api";
-import { DashboardPriorityBucket, DashboardStats, FeedbackForAgent, IntelligenceQueueItem } from "@/app/types";
+import { DashboardPriorityBucket, DashboardStats, FeedbackForAgent, IntelligenceQueueItem, Agency } from "@/app/types";
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [queue, setQueue] = useState<IntelligenceQueueItem[]>([]);
   const [feedbacks, setFeedbacks] = useState<FeedbackForAgent[]>([]);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
+  const [selectedAgency, setSelectedAgency] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void loadConsole();
-  }, []);
+  }, [selectedAgency]);
 
   async function loadConsole() {
     try {
       setLoading(true);
       setError(null);
       const [statsData, queueData, feedbackData] = await Promise.all([
-        dashboardApi.getStats(),
+        dashboardApi.getStats(selectedAgency),
         intelligenceApi.getQueue(undefined, { page: 1, page_size: 12 }),
         intelligenceApi.getPendingFeedback(),
       ]);
@@ -83,6 +85,21 @@ export default function DashboardPage() {
       title="Mesa Analítica"
       subtitle="Central de triagem, priorização, revisão e retorno ao campo."
     >
+      {/* Agency Selector */}
+      <div className="mb-6 flex items-center gap-4 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+        <Building2 className="h-5 w-5 text-gray-500" />
+        <select
+          value={selectedAgency || ""}
+          onChange={(e) => setSelectedAgency(e.target.value || undefined)}
+          className="flex-1 rounded-lg border-0 bg-transparent text-sm font-medium text-gray-700 focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="">Todas as Agências (Minha Visão)</option>
+          <option value="local">Agências Locais</option>
+          <option value="regional">Agências Regionais</option>
+          <option value="central">Agência Central</option>
+        </select>
+      </div>
+
       {error ? (
         <div className="mb-6 rounded-3xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
           {error}
