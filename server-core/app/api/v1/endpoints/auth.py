@@ -50,10 +50,10 @@ security = HTTPBearer(auto_error=False)
 #    - Endpoint: https://sso.acesso.gov.br/
 #    - Necessário: Cadastro do FARO como aplicação no gov.br
 # 
-# 2. SISTEMA INTERNO PMMS (RH/Pessoal) - PRIORIDADE ALTA  
-#    - Integrar com sistema de pessoal da PMMS
+# 2. SISTEMA INTERNO BMRS (RH/Pessoal) - PRIORIDADE ALTA  
+#    - Integrar com sistema de pessoal da BMRS
 #    - Validar matrícula, CPF, unidade lotação, status ativo
-#    - Criar adapter: app/integrations/pmms_hr_adapter.py
+#    - Criar adapter: app/integrations/bmrs_hr_adapter.py
 #    - Dados necessários: Endpoint interno, credenciais, certificado
 #    - Verificar: Se policial está ativo, afastado, férias, etc.
 # 
@@ -80,7 +80,7 @@ security = HTTPBearer(auto_error=False)
 #   4. Se sucesso: autentica no FARO com dados da base oficial
 #   5. Se falha: recusa acesso ou redireciona para registro manual
 # =============================================================================
-
+# 
 # async def verify_with_intelligence_db(cpf: str, badge_number: str) -> Optional[dict]:
 #     """
 #     Verify user credentials against external intelligence database.
@@ -88,10 +88,10 @@ security = HTTPBearer(auto_error=False)
 #     IMPLEMENTATION CHECKLIST FOR NEXT DEVELOPER:
 #     
 #     [ ] Criar arquivo app/integrations/govbr_auth_adapter.py
-#     [ ] Criar arquivo app/integrations/pmms_hr_adapter.py  
+#     [ ] Criar arquivo app/integrations/bmrs_hr_adapter.py  
 #     [ ] Configurar variáveis de ambiente no .env:
 #         - GOVBR_CLIENT_ID, GOVBR_CLIENT_SECRET
-#         - PMMS_HR_ENDPOINT, PMMS_HR_API_KEY
+#         - BMRS_HR_ENDPOINT, BMRS_HR_API_KEY
 #     [ ] Implementar retry logic e circuit breaker
 #     [ ] Adicionar testes de integração (mock)
 #     [ ] Documentar no onboarding.md
@@ -110,15 +110,16 @@ security = HTTPBearer(auto_error=False)
 #             "unit_name": str,
 #             "is_active": bool,
 #             "role": str,  # "field_agent", "intelligence", "supervisor"
-#             "source": str,  # "govbr", "pmms_hr", "sigmil"
+#             "source": str,  # "govbr", "bmrs_hr", "sigmil"
 #         }
 #         None if invalid or not found
 #     """
 #     # IMPLEMENTATION EXAMPLE:
 #     # 
-#     # # Try PMMS HR system first (internal)
-#     # from app.integrations.pmms_hr_adapter import verify_with_pmms_hr
-#     # result = await verify_with_pmms_hr(cpf=cpf, badge_number=badge_number)
+#     # # Try BMRS HR system first (internal)
+#     # from app.integrations.bmrs_hr_adapter import verify_with_bmrs_hr
+#     # result = await verify_with_bmrs_hr(cpf=cpf, badge_number=badge_number)
+
 #     # if result:
 #     #     return result
 #     #

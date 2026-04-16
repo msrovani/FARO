@@ -112,6 +112,6 @@ class NetworkSettings private constructor(context: Context) {
      * Get default trusted SSIDs.
      */
     private fun getDefaultTrustedSsids(): List<String> {
-        return listOf("PMMS", "GOV", "POLICIA", "BMRS")
+        return listOf("BMRS", "GOV", "POLICIA")
     }
 }

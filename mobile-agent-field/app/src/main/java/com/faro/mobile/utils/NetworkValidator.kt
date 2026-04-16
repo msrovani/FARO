@@ -74,7 +74,7 @@ class NetworkValidator(private val context: Context) {
     
     /**
      * Check if current WiFi is institutional/trusted.
-     * Trusted SSIDs: PMMS, GOV, POLICIA, or configured in app settings.
+     * Trusted SSIDs: BMRS, GOV, POLICIA, or configured in app settings.
      */
     fun isInstitutionalWifi(): Boolean {
         if (!isWifi()) return false

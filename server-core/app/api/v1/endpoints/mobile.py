@@ -256,7 +256,7 @@ async def check_plate_suspicion(
     1. BASE ESTADUAL (DETRAN-MS): Roubo/furto, débitos, restrições
        - Adapter: app/integrations/state_registry_adapter.py
        - Implementar: query_state_vehicle_registry() com conexão real
-       - Endpoint externo: A definir pela SELOG/PMMS
+       - Endpoint externo: A definir pela BMRS
        
     2. POLÍCIA FEDERAL: Veículos com alertas nacionais
        - Criar novo adapter: federal_police_adapter.py

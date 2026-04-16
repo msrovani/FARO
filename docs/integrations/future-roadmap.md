@@ -78,7 +78,7 @@ server-core/app/integrations/renavam_adapter.py
 3. **Descomentar chamada** no endpoint `check_plate_suspicion()` (linha ~277)
 4. **Enriquecer resposta** com dados oficiais no `PlateSuspicionCheckResponse`
 5. **Adicionar cache** Redis para evitar consultas repetidas
-6. **Testar** com placas de teste (consultar SELOG/PMMS)
+6. **Testar** com placas de teste (consultar SELOG/BMRS)
 
 ### Exemplo de implementação no endpoint
 
@@ -148,9 +148,9 @@ server-core/app/integrations/govbr_auth_adapter.py
 
 **Configurações (.env):**
 ```bash
-GOVBR_CLIENT_ID=faro-pmms-prod
+GOVBR_CLIENT_ID=faro-bmrs-prod
 GOVBR_CLIENT_SECRET=xxx
-GOVBR_REDIRECT_URI=https://faro.pmms.gov.br/auth/callback
+GOVBR_REDIRECT_URI=https://faro.bmrs.gov.br/auth/callback
 GOVBR_AUTH_URL=https://sso.acesso.gov.br/authorize
 GOVBR_TOKEN_URL=https://sso.acesso.gov.br/token
 ```

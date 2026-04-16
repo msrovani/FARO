@@ -1,4 +1,4 @@
-﻿# Onboarding para novos devs
+# Onboarding para novos devs
 
 ## Objetivo
 
@@ -152,10 +152,10 @@ O sistema F.A.R.O. é **software oficial da Brigada Militar do Rio Grande do Sul
 
 ```typescript
 // Header institucional
-import { BMRSHeader } from "@/app/components/PMMSHeader";
+import { BMRSHeader } from "@/app/components/BMRSHeader";
 
 // Footer institucional  
-import { BMRSFooter } from "@/app/components/PMMSFooter";
+import { BMRSFooter } from "@/app/components/BMRSFooter";
 
 // Console shell (sidebar + header completo)
 import { ConsoleShell } from "@/app/components/console-shell";

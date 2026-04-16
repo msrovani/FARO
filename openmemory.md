@@ -293,12 +293,12 @@ Mobile (captura criptografada) → HTTPS sync → Server (PostgreSQL+MinIO) → 
 
 **Sistemas a integrar:**
 1. GOV.BR (SSO Federal) - OAuth2/OIDC
-2. Sistema RH/PESSOAL PMMS (validar matricula, unidade, status)
+2. Sistema RH/PESSOAL BMRS (validar matricula, unidade, status)
 3. SIGMIL (Sistema de Identidade Militar)
 
 **Implementacao:** Descomentar funcao e implementar adapters conforme checklist no codigo.
 
-**Credenciais:** Solicitar via SELOG/PMMS (processo administrativo)
+**Credenciais:** Solicitar via SELOG/BMRS (processo administrativo)
 
 ## 14. Quick Wins Implementados (Fase 1 - 2026-04-15)
 
@@ -712,7 +712,7 @@ val pageSize = storageOptimizer.getQueryPageSize()
 **Funcionalidades:**
 - Detectar tipo de rede (WiFi institucional, WiFi público, 4G)
 - Bloquear sync em WiFi não confiável
-- Validar SSIDs confiáveis (PMMS, GOV, POLICIA, BMRS)
+- Validar SSIDs confiáveis (BMRS, GOV, POLICIA)
 - Avaliar qualidade de rede (score 0-100)
 - Classificar tipo de conexão
 
