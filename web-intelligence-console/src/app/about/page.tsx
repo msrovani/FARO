@@ -46,37 +46,48 @@ export default function AboutPage() {
         
         {/* Easter Egg Overlay: Regimento do Planalto */}
         {easterEgg && (
-          <div className="fixed inset-0 z-50 bg-[#c6f6d5]/10 backdrop-blur-md pointer-events-none flex items-center justify-center overflow-hidden animate-in fade-in duration-500">
-            <div className="absolute inset-0 opacity-10">
-              <div className="grid grid-cols-8 gap-4 text-[12px] text-slate-900 font-mono leading-none p-10">
-                {Array.from({ length: 400 }).map((_, i) => (
-                  <div key={i} className="animate-pulse flex items-center gap-1" style={{ animationDelay: `${i * 20}ms` }}>
-                    <Star className="h-2 w-2" />
-                    {["ITARARÉ", "RIBEIRÃO", "ITAPORANGA", "PELEGRINO"][i % 4]}
+          <div className="fixed inset-0 z-50 bg-[#004225]/40 backdrop-blur-xl pointer-events-none flex items-center justify-center overflow-hidden animate-in fade-in duration-500">
+            <div className="absolute inset-0 opacity-20">
+              <div className="grid grid-cols-6 gap-8 text-[14px] text-white font-mono leading-none p-10">
+                {Array.from({ length: 200 }).map((_, i) => (
+                  <div key={i} className="animate-pulse flex items-center gap-2" style={{ animationDelay: `${i * 30}ms` }}>
+                    <Star className="h-3 w-3 text-[#FFD700]" />
+                    {["ITARARÉ", "RIBEIRÃO", "ITAPORANGA", "DISCIPLINA"][i % 4]}
                   </div>
                 ))}
               </div>
             </div>
-            <div className="text-center space-y-8 animate-in zoom-in duration-700 bg-white/90 p-16 rounded-[4rem] shadow-2xl border-8 border-[#FFD700]">
-              <div className="relative inline-block">
-                <Shield className="h-40 w-40 text-[#8B0000] mx-auto animate-pulse" />
-                <Award className="absolute -bottom-4 -right-4 h-16 w-16 text-[#FFD700] animate-bounce" />
+            <div className="text-center space-y-8 animate-in zoom-in duration-1000 bg-white/95 p-20 rounded-[5rem] shadow-[0_0_100px_rgba(255,215,0,0.3)] border-[12px] border-[#FFD700] relative">
+              <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-[#8B0000] text-[#FFD700] px-10 py-3 rounded-full font-black text-xl border-4 border-[#FFD700] shadow-xl">
+                7 DE OUTUBRO DE 1930
               </div>
-              <div className="space-y-2">
-                <h2 className="text-7xl font-black italic tracking-tighter text-[#8B0000]">
-                  REGIMENTO CORONEL PELEGRINO
+              
+              <div className="relative inline-block scale-125 mb-6">
+                <img 
+                  src="https://www.brigadamilitar.rs.gov.br/upload/recortes/201910/25174513_15948_GDO.jpg" 
+                  alt="Brasão Oficial 3º RPMon"
+                  className="h-64 h-64 object-contain drop-shadow-[0_20px_20px_rgba(0,0,0,0.3)]"
+                />
+              </div>
+
+              <div className="space-y-4">
+                <h2 className="text-7xl font-black italic tracking-tighter text-[#8B0000] drop-shadow-sm">
+                  REGIMENTO <br/> CORONEL PELEGRINO
                 </h2>
-                <div className="flex items-center justify-center gap-6">
-                  <div className="h-[2px] w-20 bg-[#FFD700]" />
-                  <p className="text-[#8B0000] text-2xl font-black tracking-[0.3em] uppercase">
-                    O REGIMENTO DO PLANALTO
+                <div className="flex flex-col items-center gap-2">
+                  <div className="h-[3px] w-48 bg-gradient-to-r from-transparent via-[#FFD700] to-transparent" />
+                  <p className="text-[#004225] text-3xl font-black tracking-[0.4em] uppercase">
+                    PLANALTO
                   </p>
-                  <div className="h-[2px] w-20 bg-[#FFD700]" />
+                  <p className="text-[#8B0000] text-lg font-bold italic tracking-widest mt-2">
+                    "DISCIPLINA PRAESIDIUM CIVITATIS"
+                  </p>
                 </div>
               </div>
-              <div className="flex justify-center gap-12 pt-4">
-                {["1930", "PASSO FUNDO", "BMRS"].map((tag) => (
-                  <span key={tag} className="px-4 py-2 bg-[#8B0000] text-white text-sm font-bold skew-x-[-12deg]">
+
+              <div className="flex justify-center gap-6 pt-8">
+                {["CAVALARIA", "PASSO FUNDO", "BMRS", "SSO"].map((tag) => (
+                  <span key={tag} className="px-6 py-3 bg-[#004225] text-[#FFD700] text-sm font-black border-2 border-[#FFD700] skew-x-[-15deg] shadow-lg">
                     {tag}
                   </span>
                 ))}
@@ -86,46 +97,74 @@ export default function AboutPage() {
         )}
 
         {/* Hero Section: The Vision */}
-        <section className="relative overflow-hidden rounded-[2.5rem] bg-gradient-to-br from-[#8B0000] to-[#5C0000] p-12 text-white shadow-2xl border-4 border-white/10">
-          <div className="absolute top-0 right-0 p-8 opacity-10">
-            <Shield className="h-64 w-64" />
+        <section className="relative overflow-hidden rounded-[3rem] bg-gradient-to-br from-[#8B0000] via-[#5C0000] to-[#004225] p-16 text-white shadow-2xl border-b-8 border-[#FFD700]">
+          <div className="absolute top-0 right-0 p-12 opacity-15 overflow-hidden">
+            <img 
+              src="https://www.brigadamilitar.rs.gov.br/upload/recortes/201910/25174513_15948_GDO.jpg" 
+              alt="" 
+              className="h-96 w-96 object-contain rotate-12"
+            />
           </div>
-          <div className="relative z-10 max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full bg-[#FFD700]/20 px-4 py-2 text-sm font-bold text-[#FFD700] mb-6 border border-[#FFD700]/30">
+          <div className="relative z-10 max-w-4xl">
+            <div className="inline-flex items-center gap-3 rounded-full bg-[#FFD700] px-6 py-2 text-xs font-black text-[#8B0000] mb-8 shadow-xl uppercase tracking-[0.2em]">
               <Award className="h-4 w-4" />
-              REGIMENTO CORONEL PELEGRINO
+              Regimento Coronel Pelegrino
             </div>
-            <h1 className="text-6xl font-black tracking-tighter mb-6 leading-[0.9]">
+            <h1 className="text-7xl font-black tracking-tighter mb-8 leading-[0.85]">
               F.A.R.O. <br/>
-              <span className="text-3xl font-light opacity-80">Ferramenta de Análise e Resposta Operacional</span>
+              <span className="text-3xl font-light text-[#FFD700]">Ferramenta de Análise e Resposta Operacional</span>
             </h1>
-            <p className="text-lg leading-relaxed text-gray-200">
-              Nascido no âmago do <span onClick={handleUnitClick} className="cursor-pointer underline decoration-[#FFD700] underline-offset-4 hover:text-[#FFD700] transition-colors font-bold uppercase tracking-wide">3º RPMon</span>, o F.A.R.O. não é apenas um software; 
-              é o braço tecnológico da força pública. Uma plataforma concebida para antecipar o crime, integrar a inteligência e proteger quem nos protege nas ruas.
+            <p className="text-xl leading-relaxed text-gray-100 max-w-2xl font-medium">
+              Desenvolvido no coração do <span onClick={handleUnitClick} className="cursor-pointer text-[#FFD700] font-black uppercase tracking-wider hover:scale-105 inline-block transition-transform duration-300">3º RPMon</span> em Passo Fundo, o FARO personifica o lema institucional: 
+              <span className="block mt-4 text-[#FFD700] italic text-2xl font-serif">"A Disciplina é a Defesa do Estado"</span>
             </p>
           </div>
         </section>
 
+        {/* Gallery Section */}
+        <section className="space-y-6">
+          <div className="flex items-center gap-4 px-4">
+            <div className="h-1 flex-1 bg-slate-200" />
+            <h2 className="text-sm font-black uppercase tracking-[0.3em] text-slate-400">Registros do Regimento</h2>
+            <div className="h-1 flex-1 bg-slate-200" />
+          </div>
+          <div className="relative group overflow-hidden rounded-[2.5rem] bg-white p-2 shadow-2xl border border-slate-200">
+            <img 
+              src="https://www.brigadamilitar.rs.gov.br/upload/arquivos/201902/26094942-redesocial-facebook.png" 
+              alt="Galeria do 3º RPMon"
+              className="w-full h-auto object-cover rounded-[2rem] filter contrast-[1.1] brightness-[1.1]"
+            />
+            <div className="absolute bottom-10 left-10 right-10 p-8 bg-black/60 backdrop-blur-md rounded-2xl border border-white/20 text-white">
+              <h3 className="text-xl font-black uppercase mb-1">Passo Fundo - RS</h3>
+              <p className="text-sm text-gray-300 font-medium">Sede do Comando Regional do Planalto • Fundação: 07 de Outubro de 1930</p>
+            </div>
+          </div>
+        </section>
+
         {/* The Commanders: Leadership */}
-        <div className="grid md:grid-cols-2 gap-8 relative">
+        <div className="grid md:grid-cols-2 gap-10 relative">
           
           {/* Commander Card */}
-          <div className="group relative rounded-[2rem] bg-white p-8 shadow-xl border border-slate-200 hover:border-[#8B0000] transition-all duration-500 overflow-hidden">
-            <div className="absolute top-0 right-0 p-6 text-slate-100 group-hover:text-[#8B0000]/5 transition-colors">
-              <Award className="h-32 w-32" />
+          <div className="group relative rounded-[2.5rem] bg-white p-10 shadow-xl border-t-8 border-[#8B0000] hover:translate-y-[-8px] transition-all duration-500 overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 text-slate-100 group-hover:text-[#8B0000]/10 transition-colors">
+              <Award className="h-40 w-40" />
             </div>
             <div className="relative z-10">
-              <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#8B0000]/10 text-[#8B0000]">
-                <Shield className="h-6 w-6" />
+              <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-3xl bg-[#8B0000]/10 text-[#8B0000]">
+                <img 
+                  src="https://www.brigadamilitar.rs.gov.br/upload/recortes/201910/25174513_15948_GDO.jpg" 
+                  alt="" 
+                  className="h-10 w-10 object-contain"
+                />
               </div>
-              <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[#8B0000] mb-1">Comandante do 3º RPMon</h3>
-              <h2 className="text-2xl font-black text-slate-900 mb-4">Ten Cel PM Marcelo Scapin ROVANI</h2>
-              <p className="text-sm text-slate-600 leading-relaxed mb-6">
-                Liderança estratégica e patrono intelectual do sistema. Sob seu comando, o Regimento abraçou a transformação digital, elevando a segurança pública ao patamar da inteligência baseada em dados.
+              <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#8B0000] mb-2">Comandante do 3º RPMon</h3>
+              <h2 className="text-3xl font-black text-slate-900 mb-6">Ten Cel PM Marcelo Scapin ROVANI</h2>
+              <p className="text-base text-slate-600 leading-relaxed mb-8">
+                Sob o comando do Ten Cel Rovani, o 3º RPMon consolidou-se como polo de inovação na Brigada Militar. Sua visão estratégica foi o catalisador para a criação do FARO, integrando a mística da Cavalaria com a precisão dos dados.
               </p>
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
-                <ChevronRight className="h-4 w-4" />
-                VISÃO ESTRATÉGICA NO PLANALTO
+              <div className="flex items-center gap-3 text-xs font-black text-[#8B0000]">
+                <div className="h-[2px] w-8 bg-[#8B0000]" />
+                LIDERANÇA E ESTRATÉGIA NO PLANALTO
               </div>
             </div>
           </div>
