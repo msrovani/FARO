@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { ConsoleShell } from "../components/console-shell";
 import { 
   Shield, 
@@ -63,10 +64,12 @@ export default function AboutPage() {
               </div>
               
               <div className="relative inline-block scale-125 mb-6">
-                <img 
+                <Image 
                   src="https://www.brigadamilitar.rs.gov.br/upload/recortes/201910/25174513_15948_GDO.jpg" 
                   alt="Brasão Oficial 3º RPMon"
-                  className="h-64 h-64 object-contain drop-shadow-[0_20px_20px_rgba(0,0,0,0.3)]"
+                  width={256}
+                  height={256}
+                  className="object-contain drop-shadow-[0_20px_20px_rgba(0,0,0,0.3)]"
                 />
               </div>
 
@@ -80,7 +83,7 @@ export default function AboutPage() {
                     PLANALTO
                   </p>
                   <p className="text-[#8B0000] text-lg font-bold italic tracking-widest mt-2">
-                    "DISCIPLINA PRAESIDIUM CIVITATIS"
+                    &quot;DISCIPLINA PRAESIDIUM CIVITATIS&quot;
                   </p>
                 </div>
               </div>
@@ -99,10 +102,12 @@ export default function AboutPage() {
         {/* Hero Section: The Vision */}
         <section className="relative overflow-hidden rounded-[3rem] bg-gradient-to-br from-[#8B0000] via-[#5C0000] to-[#004225] p-16 text-white shadow-2xl border-b-8 border-[#FFD700]">
           <div className="absolute top-0 right-0 p-12 opacity-15 overflow-hidden">
-            <img 
+            <Image 
               src="https://www.brigadamilitar.rs.gov.br/upload/recortes/201910/25174513_15948_GDO.jpg" 
               alt="" 
-              className="h-96 w-96 object-contain rotate-12"
+              width={384}
+              height={384}
+              className="object-contain rotate-12"
             />
           </div>
           <div className="relative z-10 max-w-4xl">
@@ -116,7 +121,7 @@ export default function AboutPage() {
             </h1>
             <p className="text-xl leading-relaxed text-gray-100 max-w-2xl font-medium">
               Desenvolvido no coração do <span onClick={handleUnitClick} className="cursor-pointer text-[#FFD700] font-black uppercase tracking-wider hover:scale-105 inline-block transition-transform duration-300">3º RPMon</span> em Passo Fundo, o FARO personifica o lema institucional: 
-              <span className="block mt-4 text-[#FFD700] italic text-2xl font-serif">"A Disciplina é a Defesa do Estado"</span>
+              <span className="block mt-4 text-[#FFD700] italic text-2xl font-serif">&quot;A Disciplina é a Defesa do Estado&quot;</span>
             </p>
           </div>
         </section>
@@ -129,9 +134,11 @@ export default function AboutPage() {
             <div className="h-1 flex-1 bg-slate-200" />
           </div>
           <div className="relative group overflow-hidden rounded-[2.5rem] bg-white p-2 shadow-2xl border border-slate-200">
-            <img 
+            <Image 
               src="https://www.brigadamilitar.rs.gov.br/upload/arquivos/201902/26094942-redesocial-facebook.png" 
               alt="Galeria do 3º RPMon"
+              width={1200}
+              height={630}
               className="w-full h-auto object-cover rounded-[2rem] filter contrast-[1.1] brightness-[1.1]"
             />
             <div className="absolute bottom-10 left-10 right-10 p-8 bg-black/60 backdrop-blur-md rounded-2xl border border-white/20 text-white">
@@ -151,10 +158,12 @@ export default function AboutPage() {
             </div>
             <div className="relative z-10">
               <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-3xl bg-[#8B0000]/10 text-[#8B0000]">
-                <img 
+                <Image 
                   src="https://www.brigadamilitar.rs.gov.br/upload/recortes/201910/25174513_15948_GDO.jpg" 
                   alt="" 
-                  className="h-10 w-10 object-contain"
+                  width={40}
+                  height={40}
+                  className="object-contain"
                 />
               </div>
               <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#8B0000] mb-2">Comandante do 3º RPMon</h3>

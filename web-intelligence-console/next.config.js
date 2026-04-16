@@ -17,7 +17,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    domains: ['localhost'],
+    domains: ['localhost', 'www.brigadamilitar.rs.gov.br'],
   },
   env: {
     API_URL: process.env.API_URL || 'http://localhost:8000',
