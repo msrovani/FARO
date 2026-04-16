@@ -1,5 +1,31 @@
 # Changelog F.A.R.O.
 
+## [1.5.0] - 2026-04-15
+
+### Enriquecimento da Sessão Tática (Intel-Debrief & Cinemática)
+- **Frontend (Web Console)**:
+  - Integração de `MapBase` do MapBox na visualização de Fila Analítica.
+  - O pino veicular agora acompanha o eixo polar (Heading) real coletado na borda.
+  - Linha visual `Metadados do Veículo` embutindo precisões sistêmicas e características brutas: Velocidade, Cor, Saúde do App.
+  - Implementação do Painel **Intel Debrief**, traduzindo o Reporte Tático (`SuspicionReport`) em um termômetro numérico extraído da ótica do PM/Policial.
+
+- **Backend (Server Core)**:
+  - Ampliado schema Pydantic de resposta mestre `ObservationAnalyticDetailResponse`.
+  - Joins de Banco de Dados alterados em `get_observation_detail` para ancorar dados perdidos do `SuspicionReport`.
+
+### Alertas de Clonagem Multi-Agências
+- **Backend**:
+  - `evaluate_impossible_travel` agora eleva a confidência de um alerta "Impossible Travel" para `0.95` e a decisão para `CRITICAL` ao detectar uma placa transpondo geografias de **Agências Distintas** (`agency_id != previous.agency_id`) numa janela de tempo impraticável. A flag de clonagem alerta ativamente a Mesa de Comando.
+
+### Módulo de Supervisão de Dispositivos Edge
+- **Backend**:
+  - Nova API Administrativa `GET /api/v1/intelligence/devices`
+  - Nova Rota de Controle de Risco `PATCH /api/v1/intelligence/devices/{device_id}/suspend` para suspender revogações offline a níveis sistêmicos.
+- **Frontend**:
+  - Criação completa do dashboard `/devices` exibindo hardware em ação, suas saúdes e toggle de kill-switch para suspensão tática em caso de roubo/extravio do armamento eletrônico de campo.
+
+---
+
 ## [1.4.0] - 2026-04-15
 
 ### Gestão de Usuários Hierarquizada

@@ -143,6 +143,10 @@ export interface SuspicionReport {
   level: SuspicionLevel;
   urgency: UrgencyLevel;
   notes?: string;
+  abordado?: boolean;
+  nivel_abordagem?: number;
+  ocorrencia_registrada?: boolean;
+  texto_ocorrencia?: string;
   image_url?: string;
   audio_url?: string;
   audio_duration_seconds?: number;
@@ -418,6 +422,7 @@ export interface ObservationDetail extends VehicleObservation {
   suspicion_score?: SuspicionScore;
   analyst_reviews: AnalystReview[];
   feedback_events: AnalystFeedbackEvent[];
+  suspicion_report?: SuspicionReport;
 }
 
 export interface IntelligenceCase {
@@ -467,4 +472,18 @@ export interface ApiError {
   message: string;
   code?: string;
   timestamp: string;
+}
+
+export interface Device {
+  id: string;
+  device_id: string;
+  user_id: string;
+  agency_id?: string;
+  device_model?: string;
+  os_version?: string;
+  app_version?: string;
+  is_active: boolean;
+  last_seen: string;
+  created_at: string;
+  updated_at: string;
 }

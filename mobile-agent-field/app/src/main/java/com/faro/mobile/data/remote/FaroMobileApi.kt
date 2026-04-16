@@ -3,6 +3,7 @@ package com.faro.mobile.data.remote
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
@@ -45,4 +46,16 @@ interface FaroMobileApi {
         @Part("asset_type") assetType: RequestBody,
         @Part file: MultipartBody.Part
     ): UploadAssetResponseDto
+
+    @Multipart
+    @POST("mobile/observations/{observationId}/assets/progressive")
+    suspend fun uploadObservationAssetProgressive(
+        @Path("observationId") observationId: String,
+        @Part("asset_type") assetType: RequestBody,
+        @Part file: MultipartBody.Part,
+        @Part("upload_id") uploadId: RequestBody?,
+        @Part("chunk_index") chunkIndex: RequestBody,
+        @Part("complete") complete: RequestBody,
+        @Part("parts") parts: RequestBody?
+    ): com.google.gson.JsonObject
 }

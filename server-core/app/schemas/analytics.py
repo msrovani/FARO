@@ -16,6 +16,7 @@ from app.db.base import (
     CaseStatus,
 )
 from app.schemas.observation import VehicleObservationResponse
+from app.schemas.suspicion import SuspicionReportResponse
 
 
 class AlgorithmResultResponse(BaseModel):
@@ -234,6 +235,7 @@ class ObservationAnalyticDetailResponse(VehicleObservationResponse):
     suspicion_score: Optional[SuspicionScoreResponse] = None
     analyst_reviews: List[AnalystReviewResponse] = []
     feedback_events: List[AnalystFeedbackResponse] = []
+    suspicion_report: Optional[SuspicionReportResponse] = None
 
 
 class AuditLogResponse(BaseModel):

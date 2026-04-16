@@ -681,6 +681,10 @@ async def get_observation_detail(
     base_response = await serialize_observation(db, observation, agent)
     algorithm_results = await build_algorithm_results_for_observation(db, observation_id)
 
+    suspicion_report_row = (
+        await db.execute(select(SuspicionReport).where(SuspicionReport.observation_id == observation_id))
+    ).scalars().first()
+
     score_row = (
         await db.execute(select(SuspicionScore).where(SuspicionScore.observation_id == observation_id))
     ).scalars().first()
@@ -725,6 +729,7 @@ async def get_observation_detail(
             serialize_analyst_feedback(feedback, analyst.full_name)
             for feedback, analyst in feedback_rows
         ],
+        suspicion_report=suspicion_report_row,
     )
 
 

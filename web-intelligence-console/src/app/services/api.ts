@@ -33,11 +33,11 @@ import {
   PatternDriftAlert,
   RecurringRouteAlert,
   SuspiciousRoute,
-  SuspiciousRouteMatch,
   HotspotAnalysis,
   HotspotTimeline,
   HotspotPlates,
   AlertAggregated,
+  Device,
 } from '@/app/types';
 
 // Create axios instance
@@ -489,6 +489,19 @@ export const userApi = {
 
   deleteUser: async (userId: string) => {
     await api.delete(`/auth/users/${userId}`);
+  },
+};
+
+// Devices API
+export const devicesApi = {
+  listDevices: async (): Promise<Device[]> => {
+    const response = await api.get('/intelligence/devices');
+    return response.data;
+  },
+
+  suspendDevice: async (deviceId: string, justification: string): Promise<Device> => {
+    const response = await api.patch(`/intelligence/devices/${deviceId}/suspend`, { justification });
+    return response.data;
   },
 };
 

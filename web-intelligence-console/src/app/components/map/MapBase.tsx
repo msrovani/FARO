@@ -12,9 +12,9 @@ interface MapBaseProps {
   };
   children?: React.ReactNode;
   onClick?: (e: any) => void;
-  onMove?: (e: any) => void;
   style?: React.CSSProperties;
   className?: string;
+  mapRef?: any;
 }
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
@@ -26,14 +26,16 @@ export default function MapBase({
   onMove,
   style,
   className = "w-full h-full",
+  mapRef,
 }: MapBaseProps) {
-  const mapRef = useRef<any>(null);
+  const defaultRef = useRef<any>(null);
+  const resolvedRef = mapRef || defaultRef;
   const [viewState, setViewState] = useState(initialView);
 
   return (
     <div style={style} className={className}>
       <Map
-        ref={mapRef}
+        ref={resolvedRef}
         mapStyle={`https://api.maptiler.com/maps/streets/style.json?key=${MAPBOX_TOKEN}`}
         initialViewState={viewState}
         onMove={(evt) => {

@@ -5,6 +5,8 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { ConsoleShell } from "@/app/components/console-shell";
 import { intelligenceApi } from "@/app/services/api";
 import { AnalystFeedbackTemplate, FeedbackRecipient, IntelligenceCase } from "@/app/types";
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
+import { LayoutGrid, ClipboardList, TrendingUp, CheckCircle2, ChevronRight, MessageSquareCode } from "lucide-react";
 
 const statusOptions: IntelligenceCase["status"][] = ["open", "monitoring", "escalated", "closed"];
 
@@ -225,6 +227,40 @@ export default function CasesPage() {
     }
   }
 
+  const onDragEnd = async (result: DropResult) => {
+    const { destination, source, draggableId } = result;
+
+    if (!destination) return;
+    if (destination.droppableId === source.droppableId && destination.index === source.index) return;
+
+    const newStatus = destination.droppableId as IntelligenceCase["status"];
+    const draggedCase = cases.find((c) => c.id === draggableId);
+
+    if (!draggedCase || draggedCase.status === newStatus) return;
+
+    // Optimistic update
+    const updatedCases = cases.map((c) => 
+      c.id === draggableId ? { ...c, status: newStatus } : c
+    );
+    setCases(updatedCases);
+
+    try {
+      await intelligenceApi.updateCase(draggableId, { status: newStatus });
+    } catch (err) {
+      console.error("Failed to update case status via D&D", err);
+      setError("Falha ao mover o caso. Sincronização interrompida.");
+      // Rollback
+      loadCases();
+    }
+  };
+
+  const columns: { id: IntelligenceCase["status"]; label: string; icon: any; color: string }[] = [
+    { id: "open", label: "Abertos", icon: ClipboardList, color: "text-sky-600 bg-sky-50 border-sky-200" },
+    { id: "monitoring", label: "Monitoramento", icon: TrendingUp, color: "text-amber-600 bg-amber-50 border-amber-200" },
+    { id: "escalated", label: "Escalonado", icon: MessageSquareCode, color: "text-red-600 bg-red-50 border-red-200" },
+    { id: "closed", label: "Fechados", icon: CheckCircle2, color: "text-slate-600 bg-slate-50 border-slate-200" },
+  ];
+
   return (
     <ConsoleShell
       title="Casos e Dossies"
@@ -420,83 +456,85 @@ export default function CasesPage() {
           </form>
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden flex flex-col">
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-slate-950">Dossies ativos</h2>
-              <p className="mt-1 text-sm text-slate-500">Lista priorizada para acompanhamento, reabertura e escalonamento.</p>
+              <h2 className="text-lg font-semibold text-slate-950">Mural de Investigação (Kanban)</h2>
+              <p className="mt-1 text-sm text-slate-500">Mova os dossiês entre status para controle de fluxo ARI/DINT.</p>
             </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por titulo ou hipotese"
-                className="rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-              />
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as IntelligenceCase["status"] | "all")}
-                className="rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-              >
-                <option value="all">todos</option>
-                {statusOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {humanize(option)}
-                  </option>
-                ))}
-              </select>
-              <button
+            <div className="flex gap-2">
+               <button
                 type="button"
                 onClick={() => void loadCases({ status: statusFilter, search })}
-                className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+                className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
               >
-                Atualizar
+                <LayoutGrid size={20} />
               </button>
             </div>
           </div>
 
-          {loading ? (
-            <EmptyState text="Carregando casos..." />
-          ) : cases.length === 0 ? (
-            <EmptyState text="Nenhum caso encontrado para o filtro atual." />
-          ) : (
-            <div className="space-y-3">
-              {cases.map((caseItem) => (
-                <article
-                  key={caseItem.id}
-                  className={`rounded-2xl border p-4 ${selectedCaseId === caseItem.id ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"}`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold text-slate-950">{caseItem.title}</h3>
-                        <StatusBadge status={caseItem.status} />
+          <DragDropContext onDragEnd={onDragEnd}>
+            <div className="flex-1 overflow-x-auto pb-4">
+              <div className="flex gap-4 h-full min-w-[800px]">
+                {columns.map((col) => (
+                  <Droppable key={col.id} droppableId={col.id}>
+                    {(provided, snapshot) => (
+                      <div
+                        className={`flex flex-col w-1/4 min-w-[200px] rounded-2xl border transition-colors ${
+                          snapshot.isDraggingOver ? "bg-slate-50 border-slate-300" : "bg-transparent border-transparent"
+                        }`}
+                        {...provided.droppableProps}
+                        ref={provided.innerRef}
+                      >
+                        <div className={`p-4 mb-2 rounded-t-2xl border-b flex items-center gap-2 ${col.color}`}>
+                          <col.icon size={18} />
+                          <h3 className="font-bold text-sm uppercase tracking-wider">{col.label}</h3>
+                          <span className="ml-auto bg-white/50 px-2 rounded text-xs font-mono">
+                            {cases.filter(c => c.status === col.id).length}
+                          </span>
+                        </div>
+                        
+                        <div className="flex-1 space-y-3 p-2 overflow-y-auto max-h-[700px]">
+                          {cases
+                            .filter((c) => c.status === col.id)
+                            .map((caseItem, index) => (
+                              <Draggable key={caseItem.id} draggableId={caseItem.id} index={index}>
+                                {(provided, snapshot) => (
+                                  <article
+                                    ref={provided.innerRef}
+                                    {...provided.draggableProps}
+                                    {...provided.dragHandleProps}
+                                    onClick={() => selectCase(caseItem)}
+                                    className={`rounded-2xl border p-4 shadow-sm transition-all cursor-pointer ${
+                                      snapshot.isDragging ? "shadow-xl ring-2 ring-slate-900 border-none scale-105 z-50" : 
+                                      selectedCaseId === caseItem.id ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white hover:border-slate-400"
+                                    }`}
+                                  >
+                                    <div className="flex justify-between items-start mb-2">
+                                      <h4 className="font-bold text-sm text-slate-900 line-clamp-2">{caseItem.title}</h4>
+                                      <ChevronRight size={14} className="text-slate-300" />
+                                    </div>
+                                    <p className="text-xs text-slate-500 line-clamp-2 mb-3">{caseItem.summary || caseItem.hypothesis || "Sem descrição"}</p>
+                                    
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex gap-1">
+                                        <div className={`h-2 w-2 rounded-full ${caseItem.priority > 70 ? 'bg-red-500' : caseItem.priority > 30 ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                      </div>
+                                      <span className="text-[10px] font-mono text-slate-400">#{caseItem.id.substring(0, 4)}</span>
+                                    </div>
+                                  </article>
+                                )}
+                              </Draggable>
+                            ))}
+                          {provided.placeholder}
+                        </div>
                       </div>
-                      {caseItem.hypothesis ? (
-                        <p className="mt-2 text-sm text-slate-600">{caseItem.hypothesis}</p>
-                      ) : null}
-                      {caseItem.summary ? (
-                        <p className="mt-2 text-sm text-slate-500">{caseItem.summary}</p>
-                      ) : null}
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                        <MiniTag text={`prioridade ${caseItem.priority}`} />
-                        <MiniTag text={caseItem.sensitivity_level} />
-                        <MiniTag text={caseItem.created_by_name || "analista"} />
-                        <MiniTag text={new Date(caseItem.created_at).toLocaleString("pt-BR")} />
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => selectCase(caseItem)}
-                      className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
-                    >
-                      Editar
-                    </button>
-                  </div>
-                </article>
-              ))}
+                    )}
+                  </Droppable>
+                ))}
+              </div>
             </div>
-          )}
+          </DragDropContext>
         </section>
       </div>
     </ConsoleShell>

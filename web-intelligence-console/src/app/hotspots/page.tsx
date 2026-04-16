@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import MapBase from "../components/map/MapBase";
 import HotspotMarker from "../components/map/HotspotMarker";
-import { Activity, MapPin, Clock, Users, AlertTriangle } from "lucide-react";
+import { Activity, MapPin, Clock, Users, AlertTriangle, Play, Pause } from "lucide-react";
 
 interface HotspotPoint {
   latitude: number;
@@ -21,7 +21,7 @@ interface HotspotAnalysisResult {
   total_suspicions: number;
   analysis_period_days: number;
   cluster_radius_meters: number;
-  min_points_per_cluster: int;
+  min_points_per_cluster: number;
 }
 
 export default function HotspotsPage() {
@@ -33,6 +33,8 @@ export default function HotspotsPage() {
     minPoints: 5,
     days: 30,
   });
+  const [timeRange, setTimeRange] = useState(24);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   // Mock data - replace with API call
   useEffect(() => {
@@ -77,6 +79,16 @@ export default function HotspotsPage() {
     setTimeout(() => setLoading(false), 1000);
   };
 
+  useEffect(() => {
+    let interval: any;
+    if (isPlaying) {
+      interval = setInterval(() => {
+        setTimeRange((prev) => (prev > 0 ? prev - 1 : 24));
+      }, 800);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
   return (
     <div className="flex h-screen bg-gray-900">
       {/* Sidebar */}
@@ -114,6 +126,34 @@ export default function HotspotsPage() {
               onChange={(e) => setFilters({ ...filters, days: parseInt(e.target.value) })}
               className="w-full bg-gray-700 text-white px-3 py-2 rounded"
             />
+          </div>
+
+          <div className="pt-4 border-t border-gray-700">
+            <div className="flex justify-between items-center mb-2">
+              <label className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                <Clock size={16} />
+                Timeline (h)
+              </label>
+              <button 
+                onClick={() => setIsPlaying(!isPlaying)}
+                className="p-1 rounded bg-gray-600 hover:bg-gray-500 text-white"
+              >
+                {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+              </button>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="24"
+              value={timeRange}
+              onChange={(e) => setTimeRange(parseInt(e.target.value))}
+              className="w-full accent-red-500"
+            />
+            <div className="flex justify-between text-[10px] text-gray-500 mt-1 uppercase font-bold tracking-widest">
+              <span>H-24</span>
+              <span>H-12</span>
+              <span>Agora</span>
+            </div>
           </div>
           <button
             onClick={handleAnalyze}

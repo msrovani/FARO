@@ -113,18 +113,21 @@ Pendente prioritario:
 ## 4. Regras de Escopo e Visibilidade por Agencia
 
 ### 4.1 Visibilidade de Campo (Agente)
+
 - Agente de campo ve suspeitas de **TODAS** as agencias (visao ampla)
 - Consulta de placa (`/mobile/plates/{plate}/check-suspicion`) retorna suspeitas de qualquer origem
 - Watchlist acessivel independente de `agency_id`
 - Contagem de observacoes previas inclui todas as agencias
 
 ### 4.2 Gestao de Inteligencia (Console Web)
+
 - Inteligencia ve apenas dados da sua agencia (`agency_id` isolado)
 - Gestao de agentes: apenas agentes da propria agencia (filhos)
 - Watchlist: cadastro e gestao por agencia
 - Fila analitica: apenas observacoes da propria agencia
 
 ### 4.3 Retorno de Abordagem (n+1)
+
 - Abordagem de veiculo ja suspeito: retorna para **agencia de origem** + **cadastrador original**
 - Feedback criado com `agency_id` da agencia que cadastrou a suspeita
 - Notificacao enviada ao agente original (independente de estar online)
@@ -1435,3 +1438,28 @@ CREATE TABLE devices (
 - Não implementar E2EE a menos que requisito legal explícito
 - Considerar Application-Level Encryption se proteção adicional for necessária
 - Device Binding documentado mas não implementado (complexidade adicional não justificada atualmente)
+
+## 20. Operações Táticas e Tracking de Clonagem (v1.5.0)
+
+Esta atualização extinguiu as lacunas ("silence data drops") entre a coleta no Mobile e a apreciação analítica na Inteligência Web, introduzindo gestão de conectividade em hardware e visualização cinemática viva.
+
+### 20.1 Mapa Cinemático e Metadados Puros
+No **Web Intelligence Console**, criamos uma visão micro-geográfica (`MapBase` via `react-map-gl`) capaz de renderizar um eixo indicando o `Heading` (rumo) do veículo abordado, utilizando propriedades de transformação CSS para rotacionar o pino em tempo real. Os metadados operacionais (App Version de quem enviou, Velocidade, Tipo de Conexão e sincronização) também ganharam blocos visuais distintos.
+
+### 20.2 Transparência Tática (Intel-Debrief)
+O Backend perdeu a cegueira sobre o `ApproachConfirmationRequest` (ou _SuspicionReport_). Todas as inferências humanas feitas diretamente na via pública (`abordado`, `nivel_abordagem_slider`, `ocorrencia_registrada`) agora fazem Join com o `get_observation_detail`. 
+O Analista web passa a ler um termômetro nativo do Policial em vez de apenas visualizar OCRs estáticos, humanizando o laço (Human-In-The-Loop absoluto).
+
+### 20.3 Alerta Restrito de Clonagem (Multi-Agências)
+O Algoritmo de "Impossible Travel" (`analytics_service.py`) recebeu uma sobrecarga de severidade e confidência. Se uma placa aparecer em posições incompatíveis numa janela de tempo curta, E ambos os avistamentos envolverem Agências Diferentes (`agency_id != previous.agency_id`), a confidência matemática é assinalada para `0.95` (CRITICAL), marcando explicitamente: **ALERTA CLONAGEM MULTI-AGÊNCIA**.
+
+### 20.4 Gerenciamento Remoto de Frota (Kill-switch)
+Desenvolvemos a gestão técnica dos aparelhos celulares em patrulha. O Schema de `Device` e as rotas `PATCH /api/v1/intelligence/devices/{device_id}/suspend` permitem agora que Supervisores/Inteligência visualizem e anulem tokens de acesso a partir de uma interface web gráfica intuitiva com feedback `glassmorphic`. Isso blinda a operação mesmo se um terminal móvel for capturado físico ou digitalmente.
+
+21. Redesign UX/UI Consolidation (Phase 1, 2, 3)
+
+- **Mobile (Kotlin/Compose):** Implemented Thumb-Zone ergonomics, offline banners, and multi-level haptic feedback (Success, Suspicion, Grave, Critical) with visual red flash overlays in `PlateCaptureScreen.kt`.
+- **Web Analyst (ALI):** Added cinematic map fly-to animations and advanced keyboard navigation (Arrows/Shift+Enter) for the triage queue.
+- **Web Admin (DINT/ARI):** Transformed Case management into a dynamic **Kanban board** with Drag & Drop support (`@hello-pangea/dnd`).
+- **Intelligence & Audit:** Refined visual intensity with translucent reddish Hotspot heatmaps and added a playable **Timeline Slider**. Enforced mandatory operational justifications for device suspension to ensure full auditability.
+

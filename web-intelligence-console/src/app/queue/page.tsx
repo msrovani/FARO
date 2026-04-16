@@ -1,8 +1,10 @@
 "use client";
 
-import { FormEvent, ReactNode, Suspense, useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { FormEvent, ReactNode, Suspense, useCallback, useEffect, useMemo, useState, useTransition, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { Clock3, MapPinned, ShieldAlert, Waypoints } from "lucide-react";
+import { Clock3, MapPinned, ShieldAlert, Waypoints, Navigation2, Car, PaintBucket, Smartphone, WifiRouter, ShieldClose, TriangleAlert, ShieldCheck } from "lucide-react";
+import { Marker } from "react-map-gl";
+import MapBase from "@/app/components/map/MapBase";
 
 import { ConsoleShell } from "@/app/components/console-shell";
 import { intelligenceApi } from "@/app/services/api";
@@ -74,6 +76,36 @@ function QueueContent() {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const mapRef = useRef<any>(null);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (document.activeElement?.tagName === "TEXTAREA" || document.activeElement?.tagName === "INPUT") {
+        return;
+      }
+      
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const idx = items.findIndex((i) => i.observation_id === selectedId);
+        if (idx >= 0 && idx < items.length - 1) {
+          setSelectedId(items[idx + 1].observation_id);
+        }
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const idx = items.findIndex((i) => i.observation_id === selectedId);
+        if (idx > 0) {
+          setSelectedId(items[idx - 1].observation_id);
+        }
+      } else if (e.key === "Enter" && e.shiftKey) {
+        e.preventDefault();
+        const form = document.getElementById('review-form') as HTMLFormElement;
+        if (form) form.requestSubmit();
+      }
+    }
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [items, selectedId]);
 
   useEffect(() => {
     if (highlightedId) {
@@ -90,7 +122,16 @@ function QueueContent() {
     startTransition(() => {
       void intelligenceApi
         .getObservationDetail(selectedId)
-        .then(setSelectedObservation)
+        .then((data) => {
+          setSelectedObservation(data);
+          if (mapRef.current) {
+            mapRef.current.flyTo({
+              center: [data.location.longitude, data.location.latitude],
+              duration: 1200,
+              zoom: 16
+            });
+          }
+        })
         .catch((err) => {
           console.error(err);
           setError("Falha ao abrir o detalhe da observacao.");
@@ -372,6 +413,127 @@ function QueueContent() {
                 </div>
               </div>
 
+              {/* SECTION: Kinematic Map */}
+              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+                <div className="h-48 w-full bg-slate-100 relative">
+                  <MapBase
+                    mapRef={mapRef}
+                    initialView={{
+                      latitude: selectedObservation.location.latitude,
+                      longitude: selectedObservation.location.longitude,
+                      zoom: 16,
+                    }}
+                  >
+                    <Marker
+                      latitude={selectedObservation.location.latitude}
+                      longitude={selectedObservation.location.longitude}
+                    >
+                      <div
+                        className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white shadow-xl ring-4 ring-white/50"
+                        style={{
+                          transform: `rotate(${selectedObservation.heading ?? 0}deg)`,
+                          transition: "transform 0.3s ease-out",
+                        }}
+                      >
+                        <Navigation2 className="h-5 w-5 fill-white" />
+                      </div>
+                    </Marker>
+                  </MapBase>
+                </div>
+                <div className="grid grid-cols-2 divide-x divide-slate-100 bg-white sm:grid-cols-4">
+                  <div className="flex items-center gap-2 p-3">
+                    <Navigation2 className="hidden h-4 w-4 text-slate-400 sm:block" />
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Rumo Direcional</div>
+                      <div className="text-sm font-medium text-slate-900">{selectedObservation.heading ? `${selectedObservation.heading}°` : "N/D"}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-3">
+                    <Waypoints className="hidden h-4 w-4 text-slate-400 sm:block" />
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Velocidade (Est.)</div>
+                      <div className="text-sm font-medium text-slate-900">{selectedObservation.speed ? `${selectedObservation.speed} km/h` : "N/D"}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-3">
+                    <Car className="hidden h-4 w-4 text-slate-400 sm:block" />
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Tipo / Marca</div>
+                      <div className="text-sm font-medium text-slate-900">{selectedObservation.vehicle_type || selectedObservation.vehicle_model || "--"}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-3">
+                    <PaintBucket className="hidden h-4 w-4 text-slate-400 sm:block" />
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Cor Identificada</div>
+                      <div className="text-sm font-medium text-slate-900">{selectedObservation.vehicle_color || "--"}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION: Diagnostic Health */}
+              {(selectedObservation.metadata_snapshot || selectedObservation.sync_status === "failed") && (
+                <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-3 text-xs text-slate-500">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+                    <Smartphone className="h-4 w-4" />
+                    Versão App: <span className="font-medium text-slate-900">{(selectedObservation.metadata_snapshot as any)?.app_version || "N/A"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+                    <WifiRouter className="h-4 w-4" />
+                    Rede: <span className="font-medium text-slate-900">{(selectedObservation.metadata_snapshot as any)?.network_type || "N/A"}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+                    <Clock3 className="h-4 w-4" />
+                    Sync: <span className={`font-medium ${selectedObservation.sync_status === 'failed' ? 'text-red-600' : 'text-emerald-600'}`}>{selectedObservation.sync_status}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* SECTION: Intel Debrief (Approach Confirmation) */}
+              {selectedObservation.suspicion_report && (
+                <div className="mt-6 rounded-2xl border-l-4 border-l-slate-900 bg-slate-50 p-5 shadow-sm">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 flex items-center gap-2">
+                        <ShieldAlert className="h-4 w-4 text-slate-900" />
+                        Intel Debrief (Retorno de Campo)
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {selectedObservation.suspicion_report.reason} • Urgência: {selectedObservation.suspicion_report.urgency}
+                      </p>
+                    </div>
+                    {selectedObservation.suspicion_report.abordado !== undefined && (
+                      <div className={`px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-full ${selectedObservation.suspicion_report.abordado ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                        {selectedObservation.suspicion_report.abordado ? 'Abordado' : 'Não Abordado'}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {selectedObservation.suspicion_report.abordado && (
+                    <div className="mt-5 grid gap-4 sm:grid-cols-[1fr_2fr]">
+                      <div>
+                         <div className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Termômetro Tático</div>
+                         <div className="flex items-center gap-3">
+                           <div className="text-3xl font-black text-slate-900">{selectedObservation.suspicion_report.nivel_abordagem ?? '?'}</div>
+                           <div className="text-xs space-y-1 text-slate-500 font-medium">
+                              <div>/ 100 de Perigo</div>
+                              {selectedObservation.suspicion_report.ocorrencia_registrada ? (
+                                <div className="text-amber-600 font-bold flex items-center gap-1"><TriangleAlert className="h-3 w-3" /> Gerou Ocorrência</div>
+                              ) : (
+                                <div className="text-slate-400 font-bold flex items-center gap-1"><ShieldCheck className="h-3 w-3" /> Nada Consta</div>
+                              )}
+                           </div>
+                         </div>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-xl p-3 text-sm text-slate-700 italic">
+                        "{selectedObservation.suspicion_report.notes || selectedObservation.suspicion_report.texto_ocorrencia || "Sem relato descritivo do agente."}"
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {selectedObservation.suspicion_score ? (
                 <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center justify-between gap-4">
@@ -403,7 +565,7 @@ function QueueContent() {
                 ))}
               </div>
 
-              <form className="mt-4 space-y-4" onSubmit={submitReview}>
+              <form id="review-form" className="mt-4 space-y-4" onSubmit={submitReview}>
                 <div className="grid gap-3 md:grid-cols-3">
                   <SelectField label="Status" value={status} onChange={setStatus} options={statusOptions} />
                   <SelectField label="Conclusao" value={conclusion} onChange={setConclusion} options={conclusionOptions} />

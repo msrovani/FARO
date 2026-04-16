@@ -127,6 +127,11 @@ class ApproachConfirmationRequest(BaseModel):
     notes: Optional[str] = Field(None, max_length=2000)
     approached_at_local: datetime = Field(default_factory=datetime.utcnow)
     location: Optional[GeolocationPoint] = None
+    
+    # Additional fields from mobile app to prevent silent data loss
+    suspicion_level_slider: Optional[int] = Field(None, ge=0, le=100)
+    was_approached: bool = True
+    has_incident: bool = False
 
 
 class ApproachConfirmationResponse(BaseModel):

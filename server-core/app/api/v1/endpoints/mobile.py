@@ -655,6 +655,9 @@ async def confirm_vehicle_approach(
                 "confirmed_suspicion": payload.confirmed_suspicion,
                 "approach_outcome": payload.approach_outcome,
                 "notified_original_agent": False,
+                "suspicion_level_slider": payload.suspicion_level_slider,
+                "was_approached": payload.was_approached,
+                "has_incident": payload.has_incident,
             },
             justification=payload.notes,
         )
@@ -667,6 +670,9 @@ async def confirm_vehicle_approach(
                 "confirmed_suspicion": payload.confirmed_suspicion,
                 "approach_outcome": payload.approach_outcome,
                 "notified_original_agent": False,
+                "suspicion_level_slider": payload.suspicion_level_slider,
+                "was_approached": payload.was_approached,
+                "has_incident": payload.has_incident,
             },
         )
         return ApproachConfirmationResponse(

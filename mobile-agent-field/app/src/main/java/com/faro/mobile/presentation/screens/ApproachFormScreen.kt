@@ -50,6 +50,49 @@ fun ApproachFormScreen(
                     navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
+        },
+        bottomBar = {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        isSubmitting = true
+                        onSubmit(
+                            confirmedSuspicion,
+                            suspicionLevel,
+                            wasApproached,
+                            hasIncident,
+                            notes
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    enabled = !isSubmitting && notes.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (confirmedSuspicion) 
+                            MaterialTheme.colorScheme.error 
+                        else 
+                            MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    if (isSubmitting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Icon(Icons.Default.Check, null, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("ENVIAR CONFIRMAÇÃO", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) {
+                    Text("Cancelar Operação")
+                }
+            }
         }
     ) { padding ->
         Column(
@@ -233,7 +276,7 @@ fun ApproachFormScreen(
                 }
             }
 
-            // Notes field
+            // Notes field is the last item
             OutlinedTextField(
                 value = notes,
                 onValueChange = { notes = it },
@@ -243,48 +286,8 @@ fun ApproachFormScreen(
                 minLines = 3,
                 maxLines = 5
             )
-
-            // Submit button
-            Button(
-                onClick = {
-                    isSubmitting = true
-                    onSubmit(
-                        confirmedSuspicion,
-                        suspicionLevel,
-                        wasApproached,
-                        hasIncident,
-                        notes
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isSubmitting && notes.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (confirmedSuspicion) 
-                        MaterialTheme.colorScheme.error 
-                    else 
-                        MaterialTheme.colorScheme.primary
-                )
-            ) {
-                if (isSubmitting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
-                } else {
-                    Icon(Icons.Default.Check, null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Enviar Confirmação")
-                }
-            }
-
-            // Cancel button
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Cancelar")
-            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

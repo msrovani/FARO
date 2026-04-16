@@ -24,10 +24,10 @@ export default function HotspotMarker({ hotspot, onClick }: HotspotMarkerProps) 
 
   // Color based on intensity score
   const getColor = (intensity: number) => {
-    if (intensity >= 0.8) return "#dc2626"; // red-600
-    if (intensity >= 0.6) return "#f97316"; // orange-500
-    if (intensity >= 0.4) return "#eab308"; // yellow-500
-    return "#22c55e"; // green-500
+    // Favor red tones for heatmap feel
+    if (intensity >= 0.7) return "#ef4444"; // red-500
+    if (intensity >= 0.4) return "#f87171"; // red-400
+    return "#fca5a5"; // red-300
   };
 
   // Size based on observation count
@@ -59,11 +59,11 @@ export default function HotspotMarker({ hotspot, onClick }: HotspotMarkerProps) 
         <Layer
           type="circle"
           paint={{
-            "circle-radius": size,
+            "circle-radius": size * 2.5, // Larger heat radius
             "circle-color": color,
-            "circle-opacity": 0.6,
-            "circle-stroke-width": 2,
-            "circle-stroke-color": color,
+            "circle-opacity": 0.4, // Translucent
+            "circle-stroke-width": 0,
+            "circle-blur": 0.8, // Heatmap blur effect
           }}
         />
       </Source>

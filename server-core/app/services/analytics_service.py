@@ -1,4 +1,4 @@
-﻿"""
+"""
 Heuristic, explainable analytical engine for FARO.
 """
 from __future__ import annotations
@@ -181,24 +181,32 @@ async def evaluate_impossible_travel(db: AsyncSession, observation: VehicleObser
     plausible_minutes = (distance_km / 80.0) * 60.0
     ratio = distance_km / delta_minutes
 
-    if delta_minutes < plausible_minutes * 0.5 and distance_km > 120:
+    if observation.agency_id and previous.agency_id and observation.agency_id != previous.agency_id and delta_minutes < plausible_minutes * 0.8 and distance_km > 50:
+        decision = AlgorithmDecision.IMPOSSIBLE
+        severity = "critical"
+        confidence = 0.95
+        explanation = f"ALERTA CLONAGEM MULTI-AGÊNCIA: A placa moveu {distance_km:.1f} km entre jurisdições (agências distintas) em apenas {delta_minutes:.1f} minutos. Impossibilidade física."
+    elif delta_minutes < plausible_minutes * 0.5 and distance_km > 120:
         decision = AlgorithmDecision.IMPOSSIBLE
         severity = "critical"
         confidence = 0.87
+        explanation = f"A placa apareceu a {distance_km:.1f} km de distancia com intervalo de {delta_minutes:.1f} minutos, abaixo do tempo plausivel de {plausible_minutes:.1f} minutos."
     elif delta_minutes < plausible_minutes * 0.8 and distance_km > 80:
         decision = AlgorithmDecision.HIGHLY_IMPROBABLE
         severity = "high"
         confidence = 0.73
+        explanation = f"A placa apareceu a {distance_km:.1f} km de distancia com intervalo de {delta_minutes:.1f} minutos, abaixo do tempo plausivel de {plausible_minutes:.1f} minutos."
     else:
         decision = AlgorithmDecision.ANOMALOUS
         severity = "moderate"
         confidence = 0.51
+        explanation = f"A placa apareceu a {distance_km:.1f} km de distancia com intervalo de {delta_minutes:.1f} minutos, abaixo do tempo plausivel de {plausible_minutes:.1f} minutos."
 
     outcome = AlgorithmOutcome(
         decision=decision,
         confidence=confidence,
         severity=severity,
-        explanation=f"A placa apareceu a {distance_km:.1f} km de distancia com intervalo de {delta_minutes:.1f} minutos, abaixo do tempo plausivel de {plausible_minutes:.1f} minutos.",
+        explanation=explanation,
         false_positive_risk="medium",
         metrics={
             "distance_km": round(distance_km, 2),

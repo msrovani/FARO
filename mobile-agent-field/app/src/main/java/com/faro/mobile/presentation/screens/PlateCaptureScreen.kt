@@ -1,11 +1,16 @@
 package com.faro.mobile.presentation.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,14 +45,17 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.delay
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -71,16 +79,58 @@ fun PlateCaptureScreen(
     var suspicionLevel by remember { mutableStateOf(SuspicionLevel.MEDIUM) }
     var urgencyLevel by remember { mutableStateOf(UrgencyLevel.INTELLIGENCE) }
     var notes by remember { mutableStateOf("") }
+    var alertFlashActive by remember { mutableStateOf(false) }
+    
+    val haptic = LocalHapticFeedback.current
+    
+    val flashColor by animateColorAsState(
+        targetValue = if (alertFlashActive) Color.Red.copy(alpha = 0.5f) else Color.Transparent,
+        animationSpec = tween(durationMillis = 300),
+        label = "AlertFlash"
+    )
+
+    val triggerAlert: (Int) -> Unit = { level ->
+        when (level) {
+            1 -> { // Verde - Sucesso normal
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
+            2 -> { // Laranja - Suspeição
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+            3 -> { // Vermelha - Grave
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+            4 -> { // Fatos Criminais - Intenso + Flash
+                alertFlashActive = true
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                // In a real app we would use Vibrator for pattern, here we simulate with repeated haptics
+            }
+        }
+    }
+
+    if (alertFlashActive) {
+        LaunchedEffect(Unit) {
+            delay(1000)
+            alertFlashActive = false
+        }
+    }
 
     val onTextRecognized: (String, Float) -> Unit = { text, confidence ->
         ocrSuggestion = text
         ocrConfidence = confidence
         // Auto-accept OCR if enabled and confidence meets threshold
         if (autoOcrEnabled && confidence >= autoOcrThreshold) {
-            plateNumber = text
+            if (plateNumber != text) {
+                plateNumber = text
+                // Simulate deep intelligence check feedback
+                val simulatedRisk = if (text.endsWith("0")) 4 else if (text.contains("Z")) 3 else 1
+                triggerAlert(simulatedRisk)
+            }
         } else if (plateNumber.isBlank() && confidence > 0.6f) {
             // Fallback to lower threshold for suggestion
             plateNumber = text
+            triggerAlert(1)
         }
     }
 
@@ -99,6 +149,19 @@ fun PlateCaptureScreen(
                     navigationIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
+        },
+        bottomBar = {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Button(
+                    onClick = onCaptureComplete,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    enabled = plateNumber.length >= 7
+                ) {
+                    Icon(Icons.Default.Save, null, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("CONCLUIR LANÇAMENTO EXTERNO", style = MaterialTheme.typography.titleMedium)
+                }
+            }
         }
     ) { padding ->
         Column(
@@ -141,27 +204,16 @@ fun PlateCaptureScreen(
             SyncPreviewCard()
             FeedbackPreviewCard()
 
-            StructuredSuspicionCard(
-                selectedReason = suspicionReason,
-                selectedLevel = suspicionLevel,
-                selectedUrgency = urgencyLevel,
-                notes = notes,
-                onReasonChange = { suspicionReason = it },
-                onLevelChange = { suspicionLevel = it },
-                onUrgencyChange = { urgencyLevel = it },
                 onNotesChange = { notes = it }
             )
-
-            Button(
-                onClick = onCaptureComplete,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = plateNumber.length >= 7
-            ) {
-                Icon(Icons.Default.Save, null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Concluir lançamento")
-            }
         }
+        
+        // Flash Overlay for high urgency / criminal facts
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(flashColor)
+        )
     }
 }
 
