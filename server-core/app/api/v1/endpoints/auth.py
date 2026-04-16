@@ -2,7 +2,7 @@
 F.A.R.O. Auth API - Authentication endpoints
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,6 +22,8 @@ from app.core.security import (
 )
 from app.db.base import Agency, Device, Unit, User, UserRole
 from app.schemas.user import (
+    AgentLocationBatchSync,
+    AgentLocationUpdate,
     UserLogin,
     UserCreate,
     UserResponse,
@@ -29,6 +31,7 @@ from app.schemas.user import (
     TokenRefresh,
     PasswordChange,
 )
+from app.services.audit_service import log_audit_event
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
@@ -265,6 +268,28 @@ async def login(
 
     # Update last login
     user.last_login = datetime.utcnow()
+
+    # Handle Shift Duration (On Duty status)
+    if login_data.shift_duration_hours and login_data.shift_duration_hours > 0:
+        user.is_on_duty = True
+        user.service_expires_at = datetime.utcnow() + timedelta(hours=login_data.shift_duration_hours)
+        
+        # Log duty start for audit
+        await log_audit_event(
+            db,
+            actor=user,
+            action="duty_started",
+            resource_type="user",
+            resource_id=user.id,
+            details={
+                "duration_hours": login_data.shift_duration_hours,
+                "expires_at": user.service_expires_at.isoformat(),
+            }
+        )
+    else:
+        # If no duration provided (e.g. intelligence console), keep current status or set off duty
+        # For mobile field agents, we expect the duration.
+        pass
 
     # Register/update device if provided
     if login_data.device_id:

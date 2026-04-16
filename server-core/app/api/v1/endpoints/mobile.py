@@ -2,6 +2,7 @@
 F.A.R.O. Mobile API - fluxo do agente de campo.
 """
 import asyncio
+import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -20,6 +21,9 @@ from app.db.base import (
     PlateRead,
     SuspicionReport,
     SyncStatus,
+    SuspicionReason,
+    SuspicionLevel,
+    UrgencyLevel,
     Asset,
     Unit,
     User,
@@ -41,6 +45,7 @@ from app.schemas.observation import (
 )
 from app.schemas.suspicion import SuspicionReportCreate, SuspicionReportResponse
 from app.schemas.sync import SyncBatchRequest, SyncBatchResponse, SyncResult
+from app.schemas.user import AgentLocationBatchSync, AgentLocationUpdate
 from app.services.observation_service import (
     fetch_history_flags,
     get_or_register_device,
@@ -61,6 +66,9 @@ from app.services.storage_service import (
     upload_observation_asset_bytes,
     upload_observation_asset_progressive,
 )
+from app.services.ba_service import generate_ba_from_approach
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -636,14 +644,53 @@ async def confirm_vehicle_approach(
     if observation is None:
         raise HTTPException(status_code=404, detail="Observacao nao encontrada")
 
+    # Get or create SuspicionReport for this observation to store approach data
+    report_result = await db.execute(
+        select(SuspicionReport).where(SuspicionReport.observation_id == observation_id)
+    )
+    report = report_result.scalar_one_or_none()
+    
+    if report is None:
+        report = SuspicionReport(
+            observation_id=observation_id,
+            reason=SuspicionReason.OTHER,
+            level=SuspicionLevel.LOW,
+            urgency=UrgencyLevel.MONITOR,
+            notes="Abordagem registrada",
+        )
+        db.add(report)
+        await db.flush()
+
+    # Persist tactical approach data
+    report.abordado = payload.was_approached
+    report.nivel_abordagem = payload.suspicion_level_slider
+    report.ocorrencia_registrada = payload.has_incident
+    report.street_direction = payload.street_direction
+    
+    if payload.notes:
+        report.notes = (
+            f"{report.notes}\n\n[NOTAS DE CAMPO]: {payload.notes}" 
+            if report.notes else f"[NOTAS DE CAMPO]: {payload.notes}"
+        )
+    await db.flush()
+
     # Busca suspeita de QUALQUER agencia (para encontrar o cadastrador original)
-    # REGRA: Retorno de abordagem (n+1) deve ir para agencia de origem + cadastrador original
     prior_context = await get_first_prior_suspicion_for_plate(
         db,
         plate_number=observation.plate_number,
-        agency_id=None,  # Sem filtro de agencia - busca em todo o sistema
+        agency_id=None,
         exclude_observation_id=observation.id,
     )
+
+    common_details = {
+        "confirmed_suspicion": payload.confirmed_suspicion,
+        "approach_outcome": payload.approach_outcome,
+        "suspicion_level_slider": payload.suspicion_level_slider,
+        "was_approached": payload.was_approached,
+        "has_incident": payload.has_incident,
+        "street_direction": payload.street_direction.value if payload.street_direction else None,
+    }
+
     if not prior_context or not prior_context.get("has_prior_suspicion"):
         await log_audit_event(
             db,
@@ -651,14 +698,7 @@ async def confirm_vehicle_approach(
             action="approach_confirmation_recorded",
             resource_type="vehicle_observation",
             resource_id=observation.id,
-            details={
-                "confirmed_suspicion": payload.confirmed_suspicion,
-                "approach_outcome": payload.approach_outcome,
-                "notified_original_agent": False,
-                "suspicion_level_slider": payload.suspicion_level_slider,
-                "was_approached": payload.was_approached,
-                "has_incident": payload.has_incident,
-            },
+            details={**common_details, "notified_original_agent": False},
             justification=payload.notes,
         )
         await event_bus.publish(
@@ -667,14 +707,22 @@ async def confirm_vehicle_approach(
                 "payload_version": "v1",
                 "observation_id": str(observation.id),
                 "plate_number": observation.plate_number,
-                "confirmed_suspicion": payload.confirmed_suspicion,
-                "approach_outcome": payload.approach_outcome,
+                **common_details,
                 "notified_original_agent": False,
-                "suspicion_level_slider": payload.suspicion_level_slider,
-                "was_approached": payload.was_approached,
-                "has_incident": payload.has_incident,
             },
         )
+
+        # ── Gera Boletim de Atendimento (BA) ──
+        try:
+            await generate_ba_from_approach(
+                db,
+                observation_id=observation.id,
+                approach_data=common_details | {"notes": payload.notes, "approached_at_local": payload.approached_at_local},
+                current_user=current_user,
+            )
+        except Exception as ba_err:
+            logger.warning("Falha ao gerar BA para obs %s: %s", observation.id, ba_err)
+
         return ApproachConfirmationResponse(
             observation_id=observation.id,
             plate_number=observation.plate_number,
@@ -684,9 +732,88 @@ async def confirm_vehicle_approach(
             processed_at=datetime.utcnow(),
         )
 
+
+@router.post("/profile/current-location")
+async def update_current_location(
+    payload: AgentLocationUpdate,
+    current_user: User = Depends(require_field_agent),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update the agent's current live location for tactical routing.
+    This is high-frequency and only updates the current state.
+    """
+    current_user.last_known_location = location_geometry(payload.location)
+    current_user.last_seen = datetime.utcnow()
+    
+    # Also log to history for audit trail
+    log = AgentLocationLog(
+        agent_id=current_user.id,
+        location=location_geometry(payload.location),
+        recorded_at=payload.recorded_at,
+        connectivity_status=payload.connectivity_status,
+        battery_level=payload.battery_level,
+    )
+    db.add(log)
+    
+    await db.commit()
+    return {"status": "success", "on_duty": current_user.is_on_duty}
+
+
+@router.post("/profile/location-history")
+async def sync_location_history(
+    payload: AgentLocationBatchSync,
+    current_user: User = Depends(require_field_agent),
+    db: AsyncSession = Depends(get_db),
+):
+    return {"message": f"Successfully synced {len(batch.items)} historical locations"}
+
+@router.post("/profile/duty/renew", response_model=schemas.BasicMessageResponse)
+async fun renew_duty_shift(
+    request: schemas.ShiftRenewalRequest,
+    current_user: models.User = Depends(deps.get_current_active_user),
+    db: Session = Depends(deps.get_db)
+):
+    """Extends the current shift duration for the agent."""
+    from datetime import datetime, timedelta
+    
+    expires_at = datetime.utcnow() + timedelta(hours=request.shift_duration_hours)
+    current_user.is_on_duty = True
+    current_user.service_expires_at = expires_at
+    
+    db.add(current_user)
+    
+    # Audit trail
+    from app.models.audit import AuditEvent
+    audit = AuditEvent(
+        user_id=current_user.id,
+        event_type="duty_renewed",
+        description=f"Turno renovado por +{request.shift_duration_hours}h. Expira em: {expires_at.isoformat()}",
+        metadata={"shift_duration_hours": request.shift_duration_hours, "expires_at": expires_at.isoformat()}
+    )
+    db.add(audit)
+    db.commit()
+    
+    return {"message": f"Turno renovado com sucesso por +{request.shift_duration_hours}h"}
+ collected while offline (Replay).
+    Ensures the audit trail is complete for DINT/ARI.
+    """
+    for item in payload.items:
+        log = AgentLocationLog(
+            agent_id=current_user.id,
+            location=location_geometry(item.location),
+            recorded_at=item.recorded_at,
+            connectivity_status=item.connectivity_status,
+            battery_level=item.battery_level,
+        )
+        db.add(log)
+    
+    await db.commit()
+    return {"status": "synced", "count": len(payload.items)}
+
+
     original_agent_id = UUID(prior_context["first_suspicion_agent_id"])
-    original_agent_name = prior_context.get("first_suspicion_agent_name")
-    original_agency_id = UUID(prior_context["first_suspicion_agency_id"])  # Agencia de origem
+    original_agency_id = UUID(prior_context["first_suspicion_agency_id"])
     observation_point = to_shape(observation.location)
     location_hint = (
         f"{payload.location.latitude:.6f}, {payload.location.longitude:.6f}"
@@ -694,9 +821,11 @@ async def confirm_vehicle_approach(
         else f"{observation_point.y:.6f}, {observation_point.x:.6f}"
     )
     confirmation_label = "confirmada" if payload.confirmed_suspicion else "nao confirmada"
+    direction_label = f" (Sentido: {payload.street_direction.value})" if payload.street_direction else ""
+    
     message = (
         f"Abordagem registrada para placa {observation.plate_number}. "
-        f"Suspeicao {confirmation_label}. "
+        f"Suspeicao {confirmation_label}{direction_label}. "
         f"Local: {location_hint}. "
         f"Desfecho: {payload.approach_outcome}."
     )
@@ -710,12 +839,12 @@ async def confirm_vehicle_approach(
         ).scalar_one_or_none()
         actor_unit_code = actor_unit.code if actor_unit is not None else None
 
-    # REGRA: Feedback vai para agencia de origem + cadastrador original
+    # Feedback para agencia de origem + cadastrador original
     feedback_event = AnalystFeedbackEvent(
-        agency_id=original_agency_id,  # Agencia de inteligencia de origem
+        agency_id=original_agency_id,
         observation_id=UUID(prior_context["first_suspicion_observation_id"]),
         analyst_id=current_user.id,
-        target_user_id=original_agent_id,  # Cadastrador original
+        target_user_id=original_agent_id,
         target_team_label=actor_unit_code,
         feedback_type="approach_confirmation",
         sensitivity_level="operational",
@@ -733,8 +862,7 @@ async def confirm_vehicle_approach(
         resource_type="vehicle_observation",
         resource_id=observation.id,
         details={
-            "confirmed_suspicion": payload.confirmed_suspicion,
-            "approach_outcome": payload.approach_outcome,
+            **common_details,
             "original_agent_id": str(original_agent_id),
             "feedback_event_id": str(feedback_event.id),
         },
@@ -746,12 +874,22 @@ async def confirm_vehicle_approach(
             "payload_version": "v1",
             "observation_id": str(observation.id),
             "plate_number": observation.plate_number,
-            "confirmed_suspicion": payload.confirmed_suspicion,
-            "approach_outcome": payload.approach_outcome,
+            **common_details,
             "original_agent_id": str(original_agent_id),
             "feedback_event_id": str(feedback_event.id),
         },
     )
+
+    # ── Gera Boletim de Atendimento (BA) ──
+    try:
+        await generate_ba_from_approach(
+            db,
+            observation_id=observation.id,
+            approach_data=common_details | {"notes": payload.notes, "approached_at_local": payload.approached_at_local},
+            current_user=current_user,
+        )
+    except Exception as ba_err:
+        logger.warning("Falha ao gerar BA para obs %s: %s", observation.id, ba_err)
 
     return ApproachConfirmationResponse(
         observation_id=observation.id,

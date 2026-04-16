@@ -82,6 +82,19 @@ class AgencyType(str, PyEnum):
     CENTRAL = "central"  # Agência central (estado inteiro)
 
 
+class UnitType(str, PyEnum):
+    """Operational context for a police unit."""
+    URBAN = "urban"
+    HIGHWAY = "highway"
+    SPECIAL = "special"
+
+
+class StreetNumberingDirection(str, PyEnum):
+    """Direction of street numbering for approach tracking."""
+    CRESCENTE = "crescente"
+    DECRESCENTE = "decrescente"
+
+
 class SuspicionLevel(str, PyEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -347,6 +360,15 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # Tactical & Monitoring fields
+    is_on_duty: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    service_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_known_location: Mapped[Optional[Any]] = mapped_column(
+        Geometry("POINT", srid=4326), nullable=True
+    )
+
     # Relationships
     agency: Mapped["Agency"] = relationship(back_populates="users")
     unit: Mapped[Optional["Unit"]] = relationship(back_populates="users")
@@ -374,6 +396,11 @@ class Unit(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     jurisdiction: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    unit_type: Mapped[UnitType] = mapped_column(
+        Enum(UnitType, name="unittype", create_constraint=True),
+        nullable=False,
+        default=UnitType.URBAN,
+    )
 
     # Relationships
     agency: Mapped["Agency"] = relationship(back_populates="units")
@@ -420,6 +447,39 @@ class Device(Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "device_id", name="uq_device_user_device_id"),
+    )
+
+
+class AgentLocationLog(Base):
+    """Historical trail of agent locations for audit (ALI/ARI/DINT)."""
+
+    agent_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("user.id"),
+        nullable=False,
+        index=True,
+    )
+    location: Mapped[Any] = mapped_column(
+        Geometry("POINT", srid=4326),
+        nullable=False,
+    )
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    connectivity_status: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )
+    battery_level: Mapped[Optional[float]] = mapped_column(
+        Float, nullable=True
+    )
+
+    # Relationships
+    user: Mapped[User] = relationship(overlaps="audit_logs")
+
+    __table_args__ = (
+        Index("ix_agent_location_time", "agent_id", "recorded_at"),
     )
 
 
@@ -611,6 +671,11 @@ class SuspicionReport(Base):
     texto_ocorrencia: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True, description="Details of the registered occurrence"
     )
+    street_direction: Mapped[Optional[StreetNumberingDirection]] = mapped_column(
+        Enum(StreetNumberingDirection, name="streetnumberingdirection", create_constraint=True),
+        nullable=True,
+        description="Direction of the street numbering during approach",
+    )
     # -------------------------------
 
     # Optional media
@@ -733,6 +798,38 @@ class AlertRule(Base):
 
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class AnalystGeofence(Base):
+    """Area of Interest (AoI) for an analyst to receive targeted alerts."""
+
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("user.id"),
+        nullable=False,
+        index=True,
+    )
+    agency_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("agency.id"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # The actual polygon (PostGIS)
+    area: Mapped[Any] = mapped_column(
+        Geometry("POLYGON", srid=4326),
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Relationships
+    user: Mapped["User"] = relationship()
+    agency: Mapped["Agency"] = relationship()
+
+    __table_args__ = (
+        Index("ix_analyst_geofence_user", "user_id"),
+    )
     created_by: Mapped[str] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("user.id"),
@@ -1819,4 +1916,92 @@ class AlgorithmExplanation(Base):
     explanation_text: Mapped[str] = mapped_column(Text, nullable=False)
     false_positive_risk: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True
+    )
+
+
+# =============================================================================
+# BOLETIM DE ATENDIMENTO (BA) — Conector Sistema Estadual BM
+# =============================================================================
+
+
+class BATransmissionStatusEnum(str, PyEnum):
+    """Ciclo de vida do envio de um BA ao sistema estadual."""
+    PENDING = "pending"
+    QUEUED = "queued"
+    TRANSMITTED = "transmitted"
+    REJECTED = "rejected"
+    ERROR = "error"
+    NOT_SENT = "not_sent"
+
+
+class BoletimAtendimento(Base):
+    """
+    Boletim de Atendimento gerado a partir de abordagem concluída.
+
+    Cada abordagem (approach confirmation) gera exatamente 1 BA.
+    O BA é persistido localmente e enviado ao sistema estadual da BM.
+    O envio pode ser unitário (imediato) ou em lote (batch).
+
+    Em dev-mode, o campo transmission_status será NOT_SENT.
+    """
+
+    observation_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vehicleobservation.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    agent_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("user.id"),
+        nullable=False,
+        index=True,
+    )
+    agency_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("agency.id"),
+        nullable=False,
+        index=True,
+    )
+
+    # Dados resumidos (para listagem rápida sem JOIN)
+    plate_number: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    agent_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    approach_timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    # Payload completo (JSON) conforme pacote de dados BM
+    payload_json: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False)
+
+    # Status de transmissão
+    transmission_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending",
+        index=True,
+    )
+    transmission_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    transmitted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Protocolo do sistema externo (quando disponível)
+    external_protocol: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+
+    # Batch processing
+    batch_id: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, index=True
+    )
+
+    # Relationships
+    observation: Mapped[VehicleObservation] = relationship()
+    agent: Mapped[User] = relationship()
+
+    __table_args__ = (
+        Index("ix_ba_status_created", "transmission_status", "created_at"),
+        Index("ix_ba_agent_created", "agent_id", "created_at"),
     )

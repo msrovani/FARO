@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
 
 from app.db.base import UserRole
+from app.schemas.common import GeolocationPoint
 
 
 class UserBase(BaseModel):
@@ -85,6 +86,7 @@ class UserLogin(BaseModel):
     device_model: Optional[str] = None
     os_version: Optional[str] = None
     app_version: Optional[str] = None
+    shift_duration_hours: Optional[int] = Field(None, description="Shift duration in hours (+1, +6, +12, +24)")
 
     @field_validator("identifier")
     @classmethod
@@ -142,3 +144,21 @@ class PasswordChange(BaseModel):
         if not any(c.isdigit() for c in v):
             raise ValueError("Password must contain at least one digit")
         return v
+
+
+class AgentLocationUpdate(BaseModel):
+    """Schema for a single location update."""
+    location: GeolocationPoint
+    recorded_at: datetime
+    connectivity_status: Optional[str] = None
+    battery_level: Optional[float] = None
+
+
+class AgentLocationBatchSync(BaseModel):
+    """Schema for batch syncing historical/offline locations."""
+    items: List[AgentLocationUpdate]
+    device_id: str
+
+
+class ShiftRenewalRequest(BaseModel):
+    shift_duration_hours: int

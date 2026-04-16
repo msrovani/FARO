@@ -250,3 +250,25 @@ class AuditLogResponse(BaseModel):
     details: Optional[Dict[str, Any]] = None
     justification: Optional[str] = None
     created_at: datetime
+
+
+class AgentLocationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    agent_id: UUID
+    agent_name: str
+    location: Dict[str, float]  # latitude, longitude
+    recorded_at: datetime
+    connectivity_status: Optional[str] = None
+    battery_level: Optional[float] = None
+    accuracy_meters: Optional[float] = None
+    agency_id: Optional[UUID] = None
+
+
+class GeolocationAuditFilter(BaseModel):
+    agent_id: Optional[UUID] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    agency_id: Optional[UUID] = None
+    min_accuracy: Optional[float] = None

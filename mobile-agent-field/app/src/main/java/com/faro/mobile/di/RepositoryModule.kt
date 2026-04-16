@@ -1,10 +1,10 @@
 package com.faro.mobile.di
 
-import com.faro.mobile.data.local.dao.ObservationDao
-import com.faro.mobile.data.local.dao.PlateReadDao
-import com.faro.mobile.data.local.dao.SuspicionReportDao
+import com.faro.mobile.data.local.dao.AgentLocationDao
 import com.faro.mobile.data.repository.ObservationRepositoryImpl
+import com.faro.mobile.data.repository.AgentLocationRepositoryImpl
 import com.faro.mobile.domain.repository.ObservationRepository
+import com.faro.mobile.domain.repository.AgentLocationRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -27,5 +27,13 @@ object RepositoryModule {
             plateReadDao,
             suspicionReportDao
         )
+    }
+
+    @Provides
+    @Singleton
+    fun provideAgentLocationRepository(
+        agentLocationDao: AgentLocationDao
+    ): AgentLocationRepository {
+        return AgentLocationRepositoryImpl(agentLocationDao)
     }
 }

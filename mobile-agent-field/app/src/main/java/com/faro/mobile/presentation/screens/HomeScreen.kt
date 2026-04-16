@@ -42,6 +42,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,7 +63,12 @@ fun HomeScreen(
     agencyName: String?,
     unitName: String?,
     onLogout: () -> Unit,
+    showShiftRenewal: Boolean,
+    minutesRemaining: Long?,
+    onRenewShift: (hours: Int) -> Unit,
+    onDismissRenewal: () -> Unit,
 ) {
+    var selectedRenewalHours by remember { mutableStateOf<Int?>(null) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -116,6 +129,26 @@ fun HomeScreen(
                 }
             }
 
+            // Duty Status Bar
+            minutesRemaining?.let { minutes ->
+                val statusColor = if (minutes < 10) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.tertiaryContainer
+                val onStatusColor = if (minutes < 10) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onTertiaryContainer
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(statusColor)
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "TURNO ATIVO: RESTAM ${minutes}m",
+                        color = onStatusColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -163,10 +196,52 @@ fun HomeScreen(
                     text = "Operador: $operatorName\nAgencia: ${agencyName ?: "Nao informada"}\nUnidade: ${unitName ?: "Nao informada"}",
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
+    }
+
+    // Shift Renewal Dialog
+    if (showShiftRenewal) {
+        AlertDialog(
+            onDismissRequest = onDismissRenewal,
+            title = { Text("Renovar Turno de Serviço") },
+            text = {
+                Column {
+                    Text("Seu turno atual está terminando em menos de 5 minutos. Deseja renovar para continuar o monitoramento tático e receber alertas?")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(1, 6, 12).forEach { hours ->
+                            FilterChip(
+                                selected = selectedRenewalHours == hours,
+                                onClick = { selectedRenewalHours = hours },
+                                label = { Text("+${hours}h") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { 
+                        selectedRenewalHours?.let { onRenewShift(it) }
+                        selectedRenewalHours = null
+                    },
+                    enabled = selectedRenewalHours != null
+                ) {
+                    Text("RENOVAR")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissRenewal) {
+                    Text("IGNORAR")
+                }
+            }
+        )
     }
 }
 

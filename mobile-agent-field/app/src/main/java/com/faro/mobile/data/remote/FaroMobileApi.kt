@@ -58,4 +58,19 @@ interface FaroMobileApi {
         @Part("complete") complete: RequestBody,
         @Part("parts") parts: RequestBody?
     ): com.google.gson.JsonObject
+
+    @POST("mobile/profile/current-location")
+    suspend fun updateCurrentLocation(
+        @Body request: AgentLocationUpdateDto
+    ): BasicMessageResponseDto
+
+    @POST("mobile/profile/location-history")
+    suspend fun syncLocationHistory(
+        @Body request: AgentLocationBatchSyncDto
+    ): BasicMessageResponseDto
+
+    @POST("mobile/profile/duty/renew")
+    suspend fun renewDutyShift(
+        @Body request: ShiftRenewalRequest
+    ): BasicMessageResponseDto
 }

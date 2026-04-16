@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from app.db.base import SyncStatus
+from app.db.base import SyncStatus, StreetNumberingDirection
 from app.schemas.common import GeolocationPoint, TimestampedSchema
 
 
@@ -132,6 +132,7 @@ class ApproachConfirmationRequest(BaseModel):
     suspicion_level_slider: Optional[int] = Field(None, ge=0, le=100)
     was_approached: bool = True
     has_incident: bool = False
+    street_direction: Optional[StreetNumberingDirection] = None
 
 
 class ApproachConfirmationResponse(BaseModel):

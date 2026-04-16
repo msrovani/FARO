@@ -6,8 +6,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -37,6 +40,9 @@ class WebSocketManager @Inject constructor(
     
     private val _notifications = MutableStateFlow<List<PushNotification>>(emptyList())
     val notifications: StateFlow<List<PushNotification>> = _notifications.asStateFlow()
+
+    private val _immediateAlerts = MutableSharedFlow<PushNotification>(replay = 0)
+    val immediateAlerts: SharedFlow<PushNotification> = _immediateAlerts.asSharedFlow()
     
     private var reconnectAttempts = 0
     private val maxReconnectAttempts = 5
@@ -152,6 +158,11 @@ class WebSocketManager @Inject constructor(
                         val current = _notifications.value.toMutableList()
                         current.add(0, it)
                         _notifications.value = current
+                        
+                        // Emit to immediate alerts if it's high priority or "intercept"
+                        if (it.type == "criminal_alert" || it.message.contains("INTERCEPT", ignoreCase = true)) {
+                            scope.launch { _immediateAlerts.emit(it) }
+                        }
                     }
                 }
                 else -> {

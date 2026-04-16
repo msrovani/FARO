@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import timber.log.Timber
 import java.time.Instant
+import java.time.temporal.ChronoUnit
+import com.faro.mobile.data.remote.ShiftRenewalRequest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,16 +28,17 @@ class SessionRepository @Inject constructor(
 
     val pendingFeedbackFlow: Flow<List<PendingFeedbackDto>> = store.pendingFeedbackFlow
 
-    suspend fun login(email: String, password: String): Result<SessionSnapshot> {
+    suspend fun login(email: String, password: String, shiftDurationHours: Int? = null): Result<SessionSnapshot> {
         return runCatching {
             val response = api.login(
                 LoginRequestDto(
-                    email = email.trim(),
+                    identifier = email.trim(),
                     password = password,
                     deviceId = android.os.Build.ID.takeIf { it.isNotBlank() } ?: "android-device",
                     deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
                     osVersion = "Android ${android.os.Build.VERSION.RELEASE}",
                     appVersion = BuildConfig.VERSION_NAME,
+                    shiftDurationHours = shiftDurationHours
                 )
             )
             val session = SessionSnapshot(
@@ -50,6 +53,7 @@ class SessionRepository @Inject constructor(
                 userUnitName = response.user.unitName,
                 userAgencyId = response.user.agencyId,
                 userAgencyName = response.user.agencyName,
+                serviceExpiresAt = response.serviceExpiresAt
             )
             store.saveSession(session)
             session
@@ -106,5 +110,18 @@ class SessionRepository @Inject constructor(
             )
         }.onFailure { Timber.w(it, "Falha ao marcar feedback no servidor; aplicando leitura local") }
         store.markFeedbackRead(feedbackId)
+    }
+
+    suspend fun renewShift(hours: Int): Result<Boolean> {
+        return runCatching {
+            val response = api.renewDutyShift(ShiftRenewalRequest(hours))
+            val current = store.getSessionSnapshot()
+            if (current != null) {
+                // Approximate client-side update for immediate UI feedback
+                val newExpiry = Instant.now().plus(hours.toLong(), ChronoUnit.HOURS).toString()
+                store.saveSession(current.copy(serviceExpiresAt = newExpiry))
+            }
+            true
+        }
     }
 }

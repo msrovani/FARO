@@ -3,7 +3,7 @@ F.A.R.O. API Routes - Route aggregation
 """
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import alert, audit, auth, documentation, hotspots, intelligence, mobile, route_prediction, suspicious_routes, websocket, devices
+from app.api.v1.endpoints import alert, audit, auth, boletim_atendimento, documentation, hotspots, intelligence, mobile, route_prediction, suspicious_routes, websocket, devices
 
 api_router = APIRouter()
 
@@ -69,6 +69,13 @@ api_router.include_router(
     websocket.router,
     prefix="/ws",
     tags=["WebSocket"],
+)
+
+# Boletim de Atendimento (BA) routes
+api_router.include_router(
+    boletim_atendimento.router,
+    prefix="/intelligence",
+    tags=["Boletim de Atendimento"],
 )
 
 # Documentation routes

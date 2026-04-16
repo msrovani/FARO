@@ -794,9 +794,35 @@ val dataCheck = secureSyncManager.canSyncData(
 7. Aplicar batch size baseada em rede
 8. Sincronizar batch
 
-### 18.8 Notificações ao Usuário - IMPLEMENTADO
+## 19. Monitoramento Tatico e Auditoria de Geolocalizacao (Fase 4 - 2026-04-16)
 
-**Arquivo:** `SyncWorker.kt`
+### 19.1 Persistencia em Segundo Plano (APK)
+**Requisito:** O aplicativo deve manter a coleta de lat/long e a recepcao de alertas mesmo em segundo plano ou com tela bloqueada.
+
+**Implementacao:**
+- **LocationTrackingWorker**: Coleta periodica (30s) utilizando `WorkManager` com persistência local em `Room`.
+- **Foreground Service**: Uso de servico de primeiro plano com notificacao persistente para garantir que o SO Android nao encerre o processo de monitoramento tatico.
+- **Alert Reception**: WebSocket mantido ativo via servico de primeiro plano ou integracao com Firebase Cloud Messaging (FCM) de alta prioridade para alertas de interceptacao.
+
+### 19.2 Auditoria Visual e Mapas (Console)
+**Requisito:** Analistas (ALI/ARI/DINT) devem visualizar o rastro histórico (geotrails) dos agentes de forma intuitiva.
+
+**Funcionalidades:**
+- **Visualizacao em Mapa**: Renderizacao de trilhas com setas de direcao, precisao do GPS e timestamps.
+- **Filtros Avancados**: Busca por Agente, Agencia, Unidade, Periodo Temporal e Precisao (Horizontal Accuracy).
+- **Sobreposicao Tatico-Analitica**: Cruzamento da trilha do agente com hotspots de crimes e trajetos de veiculos suspeitos.
+
+### 19.3 Exportacao Certificada (Cadeia de Custodia)
+**Requisito:** Relatorios de geolocalizacao devem ter validade juridica e integridade comprovada.
+
+**Implementacao:**
+- **Formatos**: .xlsx (dados brutos), .docx (relatorio descritivo), .pdf (documento final).
+- **Certificacao Interna**: Cada documento gerado recebe um Hash SHA-256 fixado no rodape.
+- **Trilha de Custodia**: Registro permanente no sistema de quem gerou o relatorio, quando, os filtros utilizados e o hash resultante.
+- **Assinatura Digital**: Identificacao digital do analista emissor vinculada ao documento.
+
+## 20. Proximos passos recomendados (V3)
+...
 
 **Funcionalidades:**
 - Notificação quando sync é bloqueado (WiFi público)

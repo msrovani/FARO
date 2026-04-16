@@ -14,6 +14,8 @@ data class LoginRequestDto(
     val osVersion: String? = null,
     @SerializedName("app_version")
     val appVersion: String? = null,
+    @SerializedName("shift_duration_hours")
+    val shiftDurationHours: Int? = null,
 )
 
 data class RefreshTokenRequestDto(
@@ -31,6 +33,8 @@ data class TokenResponseDto(
     @SerializedName("expires_in")
     val expiresIn: Long,
     val user: AuthUserDto,
+    @SerializedName("service_expires_at")
+    val serviceExpiresAt: String? = null,
 )
 
 data class AuthUserDto(

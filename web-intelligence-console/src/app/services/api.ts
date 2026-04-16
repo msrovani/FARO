@@ -38,6 +38,8 @@ import {
   HotspotPlates,
   AlertAggregated,
   Device,
+  AgentLocationEntry,
+  GeolocationAuditFilter,
 } from '@/app/types';
 
 // Create axios instance
@@ -345,6 +347,19 @@ export const intelligenceApi = {
     page_size?: number;
   }): Promise<AuditLogEntry[]> => {
     const response = await api.get('/audit/logs', { params });
+    return response.data;
+  },
+  
+  getAgentGeotrail: async (filters: GeolocationAuditFilter): Promise<AgentLocationEntry[]> => {
+    const response = await api.get('/audit/geolocation', { params: filters });
+    return response.data;
+  },
+
+  exportGeotrail: async (filters: GeolocationAuditFilter, format: 'pdf' | 'docx' | 'xlsx'): Promise<Blob> => {
+    const response = await api.get(`/audit/geolocation/export/${format}`, {
+      params: filters,
+      responseType: 'blob'
+    });
     return response.data;
   },
 };

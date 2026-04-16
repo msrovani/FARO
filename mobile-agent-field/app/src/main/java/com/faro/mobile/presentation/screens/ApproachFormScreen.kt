@@ -24,6 +24,7 @@ fun ApproachFormScreen(
         suspicionLevel: Int,
         wasApproached: Boolean,
         hasIncident: Boolean,
+        streetDirection: String?,
         notes: String
     ) -> Unit,
     onCancel: () -> Unit,
@@ -33,6 +34,7 @@ fun ApproachFormScreen(
     var wasApproached by remember { mutableStateOf(false) }
     var hasIncident by remember { mutableStateOf(false) }
     var notes by remember { mutableStateOf("") }
+    var streetDirection by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -61,11 +63,12 @@ fun ApproachFormScreen(
                             suspicionLevel,
                             wasApproached,
                             hasIncident,
+                            streetDirection,
                             notes
                         )
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp),
-                    enabled = !isSubmitting && notes.isNotBlank(),
+                    enabled = !isSubmitting && notes.isNotBlank() && streetDirection != null,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (confirmedSuspicion) 
                             MaterialTheme.colorScheme.error 
@@ -226,6 +229,53 @@ fun ApproachFormScreen(
                             Text("Média", style = MaterialTheme.typography.bodySmall)
                             Text("Alta", style = MaterialTheme.typography.bodySmall)
                         }
+                    }
+                }
+            }
+
+            // Street Direction (Mandatory)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (streetDirection == null) 
+                        MaterialTheme.colorScheme.surfaceVariant 
+                    else 
+                        MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Sentido da Via (Obrigatório)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (streetDirection == null) 
+                            MaterialTheme.colorScheme.error 
+                        else 
+                            MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = streetDirection == "crescente",
+                            onClick = { streetDirection = "crescente" },
+                            label = { Text("Crescente") },
+                            leadingIcon = if (streetDirection == "crescente") {
+                                { Icon(Icons.Default.KeyboardArrowUp, null) }
+                            } else null,
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = streetDirection == "decrescente",
+                            onClick = { streetDirection = "decrescente" },
+                            label = { Text("Decrescente") },
+                            leadingIcon = if (streetDirection == "decrescente") {
+                                { Icon(Icons.Default.KeyboardArrowDown, null) }
+                            } else null,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }

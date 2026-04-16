@@ -452,6 +452,26 @@ export interface AuditLogEntry {
   created_at: string;
 }
 
+export interface AgentLocationEntry {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  location: GeolocationPoint;
+  recorded_at: string;
+  connectivity_status: string;
+  battery_level?: number;
+  accuracy_meters?: number;
+  agency_id?: string;
+}
+
+export interface GeolocationAuditFilter {
+  agent_id?: string;
+  start_date?: string;
+  end_date?: string;
+  agency_id?: string;
+  min_accuracy?: number;
+}
+
 export interface PaginationParams {
   page: number;
   page_size: number;

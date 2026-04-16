@@ -13,9 +13,11 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import (
-    SuspiciousRoute,
-    VehicleObservation,
     SuspicionReport,
+    Unit,
+    UnitType,
+    Agency,
+    AgencyType,
 )
 from app.services.route_prediction_service import (
     get_pattern_drift_alert,
@@ -35,6 +37,57 @@ class Alert:
     details: dict
     triggered_at: datetime
     requires_review: bool
+    targets: ["mobile_agents"],
+)
+
+
+async def get_active_agents_near(
+    db: AsyncSession, location: GeolocationPoint, radius_km: float = 2.0
+) -> List[User]:
+    """Find agents on duty near a specific location."""
+    # Convert location to PostGIS point
+    point = f"SRID=4326;POINT({location.longitude} {location.latitude})"
+    
+    query = (
+        select(User)
+        .where(
+            and_(
+                User.role == UserRole.FIELD_AGENT,
+                User.is_on_duty == True,
+                User.service_expires_at > datetime.utcnow(),
+                func.ST_DWithin(
+                    User.last_known_location,
+                    point,
+                    radius_km / 111.32,  # Rough degrees conversion for 4326
+                ),
+            )
+        )
+    )
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+async def get_alert_context(db: AsyncSession, agency_id: UUID, agent_id: Optional[UUID] = None) -> dict:
+    """Determine radius and dispatch targets based on unit context."""
+    if not agent_id:
+        return {"radius_km": 2.0, "context": "urban", "targets": ["mobile_agents"]}
+    
+    # Get reporting unit
+    query = select(Unit).join(User, User.unit_id == Unit.id).where(User.id == agent_id)
+    unit = (await db.execute(query)).scalar_one_or_none()
+    
+    if unit and unit.unit_type == UnitType.HIGHWAY:
+        return {
+            "radius_km": 15.0, 
+            "context": "highway", 
+            "targets": ["ali_console", "ari_node"]
+        }
+    
+    return {
+        "radius_km": 2.0, 
+        "context": "urban", 
+        "targets": ["mobile_agents"]
+    }
 
 
 async def check_observation_alerts(
@@ -44,12 +97,16 @@ async def check_observation_alerts(
     location: GeolocationPoint,
     observed_at: datetime,
     agency_id: UUID,
+    agent_id: Optional[UUID] = None,
 ) -> List[Alert]:
     """
     Check all alert conditions for a new observation.
-    Returns list of triggered alerts.
+    Returns list of triggered alerts with contextual metadata.
     """
     alerts = []
+    
+    # Get contextual settings (Highway vs City)
+    ctx = await get_alert_context(db, agency_id, agent_id)
     
     # 1. Check if observation matches any suspicious route
     match_request = SuspiciousRouteMatchRequest(
@@ -57,12 +114,13 @@ async def check_observation_alerts(
         plate_number=plate_number,
         location=location,
         observed_at=observed_at,
+        search_radius_km=ctx["radius_km"], # Pass the contextual radius
     )
     
     match_result = await check_route_match(db, match_request, agency_id)
     
     if match_result.alert_triggered:
-        # Determine severity based on risk level of matched routes
+        # Determine severity
         max_risk = "low"
         for route in match_result.matched_routes:
             if route["risk_level"] == "critical":
@@ -70,8 +128,6 @@ async def check_observation_alerts(
                 break
             elif route["risk_level"] == "high" and max_risk != "critical":
                 max_risk = "high"
-            elif route["risk_level"] == "medium" and max_risk not in ["critical", "high"]:
-                max_risk = "medium"
         
         alerts.append(Alert(
             alert_type="suspicious_route_match",
@@ -81,6 +137,8 @@ async def check_observation_alerts(
             details={
                 "matched_routes": match_result.matched_routes,
                 "distance_meters": match_result.distance_meters,
+                "operational_context": ctx["context"],
+                "dispatch_targets": ctx["targets"],
             },
             triggered_at=datetime.utcnow(),
             requires_review=True,
@@ -94,7 +152,11 @@ async def check_observation_alerts(
             plate_number=plate_number,
             severity="medium",
             confidence=drift_alert.get("drift_percent", 0) / 100.0,
-            details=drift_alert,
+            details={
+                **drift_alert,
+                "operational_context": ctx["context"],
+                "dispatch_targets": ctx["targets"],
+            },
             triggered_at=datetime.utcnow(),
             requires_review=True,
         ))

@@ -68,6 +68,7 @@ class SessionStore @Inject constructor(
                         userRole = snapshot.userRole,
                         userUnitName = snapshot.userUnitName,
                         userAgencyName = snapshot.userAgencyName,
+                        serviceExpiresAt = snapshot.serviceExpiresAt,
                     )
                 }
                 .sortedBy { it.userName.lowercase() }
@@ -245,6 +246,7 @@ data class SessionProfile(
     val userRole: String,
     val userUnitName: String? = null,
     val userAgencyName: String? = null,
+    val serviceExpiresAt: String? = null,
 )
 
 data class SessionSnapshot(
@@ -259,6 +261,7 @@ data class SessionSnapshot(
     val userUnitName: String? = null,
     val userAgencyId: String? = null,
     val userAgencyName: String? = null,
+    val serviceExpiresAt: String? = null,
 ) {
     val isAuthenticated: Boolean
         get() = accessToken.isNotBlank() && refreshToken.isNotBlank()

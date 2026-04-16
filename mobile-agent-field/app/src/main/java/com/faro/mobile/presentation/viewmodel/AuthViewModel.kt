@@ -39,10 +39,10 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun login(email: String, password: String, onSuccess: () -> Unit) {
+    fun login(email: String, password: String, shiftDuration: Int, onSuccess: () -> Unit) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
-            val result = sessionRepository.login(email, password)
+            val result = sessionRepository.login(email, password, shiftDuration)
             result
                 .onSuccess {
                     _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = null)

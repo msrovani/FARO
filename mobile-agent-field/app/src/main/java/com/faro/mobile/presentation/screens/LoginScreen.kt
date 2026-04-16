@@ -21,11 +21,12 @@ import com.faro.mobile.presentation.viewmodel.LoginUiState
 fun LoginScreen(
     uiState: LoginUiState,
     savedProfiles: List<SessionProfile>,
-    onLogin: (identifier: String, password: String) -> Unit,
+    onLogin: (identifier: String, password: String, shiftDuration: Int) -> Unit,
     onUseSavedProfile: (profileUserId: String) -> Unit,
 ) {
-    var identifier by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") } // Wait, this is LoginScreen.kt
+    var shiftDuration by remember { mutableStateOf<Int?>(null) }
+    var isSubmitting by remember { mutableStateOf(false) } // Wait, let me check the existing state
     
     // Helper to detect if identifier is CPF (11 digits) or email
     fun isCPF(value: String): Boolean {
@@ -138,6 +139,29 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
             
+            // Shift Duration Selection
+            Text(
+                "Duração do Serviço (Obrigatório)",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(1, 6, 12, 24).forEach { hours ->
+                    FilterChip(
+                        selected = shiftDuration == hours,
+                        onClick = { shiftDuration = hours },
+                        label = { Text("+${hours}h") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
             // Login Button
             Button(
                 onClick = {
@@ -147,10 +171,10 @@ fun LoginScreen(
                     } else {
                         identifier
                     }
-                    onLogin(cleanIdentifier, password)
+                    onLogin(cleanIdentifier, password, shiftDuration ?: 6)
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = isValidIdentifier && password.isNotBlank() && !uiState.isLoading
+                enabled = isValidIdentifier && password.isNotBlank() && shiftDuration != null && !uiState.isLoading
             ) {
                 if (uiState.isLoading) {
                     CircularProgressIndicator(

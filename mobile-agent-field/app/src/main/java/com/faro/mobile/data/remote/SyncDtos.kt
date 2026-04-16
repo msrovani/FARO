@@ -50,6 +50,16 @@ data class SyncResultDto(
     val syncedAt: String? = null
 )
 
+data class LoginRequestDto(
+    @SerializedName("device_id")
+    val deviceId: String? = null,
+    val deviceModel: String? = null,
+    val osVersion: String? = null,
+    val appVersion: String? = null,
+    @SerializedName("shift_duration_hours")
+    val shiftDurationHours: Int? = null,
+)
+
 data class PendingFeedbackDto(
     @SerializedName("feedback_id")
     val feedbackId: String,
@@ -76,6 +86,18 @@ data class PendingFeedbackDto(
 data class MarkFeedbackReadRequestDto(
     @SerializedName("read_at")
     val readAt: String
+)
+
+data class AgentLocationBatchSyncDto(
+    @SerializedName("items")
+    val items: List<AgentLocationUpdateDto>,
+    @SerializedName("device_id")
+    val deviceId: String,
+)
+
+data class ShiftRenewalRequest(
+    @SerializedName("shift_duration_hours")
+    val shiftDurationHours: Int,
 )
 
 data class UploadAssetResponseDto(
@@ -152,6 +174,8 @@ data class ApproachConfirmationRequestDto(
     val wasApproached: Boolean = true,
     @SerializedName("has_incident")
     val hasIncident: Boolean = false,
+    @SerializedName("street_direction")
+    val streetDirection: String? = null,
 )
 
 data class LocationDto(
