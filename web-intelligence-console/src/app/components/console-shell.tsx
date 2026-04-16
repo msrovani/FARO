@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: "/watchlist", label: "Watchlist", icon: Radar },
   { href: "/cases", label: "Casos", icon: BriefcaseBusiness },
   { href: "/audit", label: "Auditoria", icon: ScrollText },
+  { href: "/about", label: "Sobre o FARO", icon: Shield },
 ];
 
 export function ConsoleShell({
