@@ -20,7 +20,7 @@ interface AlertMarkerProps {
   onClick?: () => void;
 }
 
-export default function AlertMarker({ alert, location, onClick }: AlertMarkerProps) {
+function AlertMarker({ alert, location, onClick }: AlertMarkerProps) {
   const [showPopup, setShowPopup] = useState(false);
 
   // Default location if not provided (use coordinates from details if available)
@@ -124,3 +124,5 @@ export default function AlertMarker({ alert, location, onClick }: AlertMarkerPro
     </>
   );
 }
+
+export default React.memo(AlertMarker);

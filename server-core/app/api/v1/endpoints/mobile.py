@@ -1,6 +1,7 @@
 """
 F.A.R.O. Mobile API - fluxo do agente de campo.
 """
+import asyncio
 from datetime import datetime
 from uuid import UUID
 
@@ -292,35 +293,33 @@ async def check_plate_suspicion(
     # - Alertar sobre débitos/restrições administrativas
     # =========================================================================
     
-    # Check watchlist (dados internos do FARO)
+    # Check watchlist, prior suspicion, and count previous observations in parallel
     # REGRA: Agente de campo ve watchlist de TODAS as agencias (visibilidade ampla)
-    watchlist_result = await db.execute(
-        select(WatchlistEntry).where(
-            and_(
-                WatchlistEntry.plate_number == normalized_plate,
-                WatchlistEntry.status == WatchlistStatus.ACTIVE,
+    # REGRA: Agente de campo ve suspeitas de TODAS as agencias
+    # REGRA: Conta observacoes de TODAS as agencias (contexto completo)
+    watchlist_result, prior_context, previous_count = await asyncio.gather(
+        db.execute(
+            select(WatchlistEntry).where(
+                and_(
+                    WatchlistEntry.plate_number == normalized_plate,
+                    WatchlistEntry.status == WatchlistStatus.ACTIVE,
+                )
             )
+        ),
+        get_first_prior_suspicion_for_plate(
+            db,
+            plate_number=normalized_plate,
+            agency_id=None,  # Sem filtro de agencia - visao ampla
+            exclude_observation_id=None,
+        ),
+        count_recent_observations(
+            db,
+            plate_number=normalized_plate,
+            agency_id=None,  # Sem filtro de agencia
+            days=30,
         )
     )
     watchlist_entry = watchlist_result.scalar_one_or_none()
-    
-    # Check prior suspicion
-    # REGRA: Agente de campo ve suspeitas de TODAS as agencias
-    prior_context = await get_first_prior_suspicion_for_plate(
-        db,
-        plate_number=normalized_plate,
-        agency_id=None,  # Sem filtro de agencia - visao ampla
-        exclude_observation_id=None,
-    )
-    
-    # Count previous observations
-    # REGRA: Conta observacoes de TODAS as agencias (contexto completo)
-    previous_count = await count_recent_observations(
-        db,
-        plate_number=normalized_plate,
-        agency_id=None,  # Sem filtro de agencia
-        days=30,
-    )
     
     # Determine if suspect
     is_suspect = watchlist_entry is not None or (prior_context and prior_context.get("has_prior_suspicion"))

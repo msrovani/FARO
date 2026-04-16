@@ -20,8 +20,78 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler for startup/shutdown events."""
     # Startup
     await init_db()
+    
+    # Initialize performance monitoring configurations
+    from app.utils.performance_monitor import get_performance_monitor
+    from app.core.config import settings
+    
+    monitor = get_performance_monitor()
+    
+    # Register configurations for different task types
+    monitor.register_config(
+        task_type="ocr_processing",
+        current_workers=settings.process_pool_max_workers if isinstance(settings.process_pool_max_workers, int) else 4,
+        current_batch_size=8,
+        min_workers=1,
+        max_workers=32,
+        min_batch_size=1,
+        max_batch_size=32,
+        target_p95_ms=1000,
+        target_p99_ms=2000,
+    )
+    
+    monitor.register_config(
+        task_type="ocr_batch",
+        current_workers=settings.process_pool_max_workers if isinstance(settings.process_pool_max_workers, int) else 4,
+        current_batch_size=16,
+        min_workers=2,
+        max_workers=16,
+        min_batch_size=4,
+        max_batch_size=64,
+        target_p95_ms=5000,
+        target_p99_ms=10000,
+    )
+    
+    monitor.register_config(
+        task_type="route_recurrence",
+        current_workers=settings.process_pool_cpu_bound_workers if isinstance(settings.process_pool_cpu_bound_workers, int) else 4,
+        current_batch_size=1,
+        min_workers=1,
+        max_workers=8,
+        min_batch_size=1,
+        max_batch_size=4,
+        target_p95_ms=500,
+        target_p99_ms=1000,
+    )
+    
+    monitor.register_config(
+        task_type="route_direction",
+        current_workers=settings.process_pool_cpu_bound_workers if isinstance(settings.process_pool_cpu_bound_workers, int) else 4,
+        current_batch_size=1,
+        min_workers=1,
+        max_workers=8,
+        min_batch_size=1,
+        max_batch_size=4,
+        target_p95_ms=200,
+        target_p99_ms=500,
+    )
+    
+    monitor.register_config(
+        task_type="hotspot_clustering",
+        current_workers=settings.process_pool_cpu_bound_workers if isinstance(settings.process_pool_cpu_bound_workers, int) else 4,
+        current_batch_size=1,
+        min_workers=1,
+        max_workers=8,
+        min_batch_size=1,
+        max_batch_size=4,
+        target_p95_ms=2000,
+        target_p99_ms=5000,
+    )
+    
     yield
     # Shutdown
+    from app.utils.process_pool import shutdown_process_pool
+    shutdown_process_pool()
     await close_db()
 
 

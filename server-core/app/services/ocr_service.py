@@ -4,6 +4,7 @@ Implements YOLOv11 + EasyOCR for Brazilian license plates
 Supports both old format (LLL-NNNN) and Mercosur format (LLLNLNN)
 """
 
+import asyncio
 import re
 import time
 from pathlib import Path
@@ -14,6 +15,39 @@ import numpy as np
 
 from ultralytics import YOLO
 import easyocr
+
+
+def detect_gpu_device(device_preference: str = "auto") -> str:
+    """
+    Detect available GPU device for OCR processing.
+
+    Args:
+        device_preference: Preferred device ("auto", "cpu", "cuda", "mps")
+
+    Returns:
+        Device string to use ("cpu", "cuda", "mps")
+    """
+    if device_preference != "auto":
+        return device_preference
+
+    # Try CUDA (NVIDIA)
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except ImportError:
+        pass
+
+    # Try MPS (Apple Silicon)
+    try:
+        import torch
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            return "mps"
+    except (ImportError, AttributeError):
+        pass
+
+    # Fallback to CPU
+    return "cpu"
 
 
 @dataclass
@@ -255,28 +289,142 @@ class OcrService:
         return False, "unknown"
 
 
+class AsyncOcrService:
+    """
+    Async wrapper for OCR service using ProcessPoolExecutor.
+    Provides async methods for CPU-bound OCR operations.
+    """
+    
+    def __init__(self, ocr_service: OcrService):
+        self._ocr_service = ocr_service
+    
+    async def process_image_async(
+        self,
+        image_path: str,
+        confidence_threshold: float = 0.5
+    ) -> Optional[OcrResult]:
+        """
+        Async wrapper for process_image using ProcessPoolExecutor.
+        
+        Args:
+            image_path: Path to image file
+            confidence_threshold: Minimum confidence for plate detection
+            
+        Returns:
+            OcrResult if successful, None otherwise
+        """
+        from app.utils.process_pool import run_in_process_pool
+        
+        return await run_in_process_pool(
+            self._ocr_service.process_image,
+            image_path,
+            confidence_threshold,
+            task_type="ocr_processing",
+            enable_monitoring=True,
+            enable_circuit_breaker=True,
+        )
+    
+    async def process_image_bytes_async(
+        self,
+        image_bytes: bytes,
+        confidence_threshold: float = 0.5
+    ) -> Optional[OcrResult]:
+        """
+        Async wrapper for process_image_bytes using ProcessPoolExecutor.
+        
+        Args:
+            image_bytes: Image data as bytes
+            confidence_threshold: Minimum confidence for plate detection
+            
+        Returns:
+            OcrResult if successful, None otherwise
+        """
+        from app.utils.process_pool import run_in_process_pool
+        
+        return await run_in_process_pool(
+            self._ocr_service.process_image_bytes,
+            image_bytes,
+            confidence_threshold
+        )
+    
+    async def process_batch_async(
+        self,
+        image_paths: list[str],
+        confidence_threshold: float = 0.5
+    ) -> list[Optional[OcrResult]]:
+        """
+        Process multiple images in parallel using ProcessPoolExecutor.
+        
+        Args:
+            image_paths: List of image file paths
+            confidence_threshold: Minimum confidence for plate detection
+            
+        Returns:
+            List of OcrResult (or None if failed)
+        """
+        from app.utils.process_pool import run_batch_in_process_pool
+        
+        args_list = [(path, confidence_threshold) for path in image_paths]
+        return await run_batch_in_process_pool(
+            self._ocr_service.process_image,
+            args_list,
+            task_type="ocr_batch",
+            enable_monitoring=True,
+        )
+
+
 # Singleton instance for dependency injection
 _ocr_service: Optional[OcrService] = None
+_async_ocr_service: Optional[AsyncOcrService] = None
 
 
 def get_ocr_service(
     yolo_model_path: Optional[str] = None,
-    device: str = "cpu"
+    device: Optional[str] = None,
 ) -> OcrService:
     """
     Get or create OCR service singleton
 
     Args:
         yolo_model_path: Path to YOLO model
-        device: Device to run on
+        device: Device to run on. If None, auto-detects GPU
 
     Returns:
         OcrService instance
     """
     global _ocr_service
     if _ocr_service is None:
+        # Auto-detect GPU if device not specified
+        if device is None:
+            try:
+                from app.core.config import settings
+                device = detect_gpu_device(settings.ocr_device)
+            except ImportError:
+                device = detect_gpu_device("auto")
+        
         _ocr_service = OcrService(
             yolo_model_path=yolo_model_path,
             device=device
         )
     return _ocr_service
+
+
+def get_async_ocr_service(
+    yolo_model_path: Optional[str] = None,
+    device: Optional[str] = None,
+) -> AsyncOcrService:
+    """
+    Get or create async OCR service wrapper singleton
+
+    Args:
+        yolo_model_path: Path to YOLO model
+        device: Device to run on. If None, auto-detects GPU
+
+    Returns:
+        AsyncOcrService instance
+    """
+    global _async_ocr_service
+    if _async_ocr_service is None:
+        sync_service = get_ocr_service(yolo_model_path, device)
+        _async_ocr_service = AsyncOcrService(sync_service)
+    return _async_ocr_service

@@ -12,6 +12,8 @@ import com.faro.mobile.data.session.SessionRepository
 import com.faro.mobile.domain.model.VehicleObservation
 import com.faro.mobile.domain.model.SyncStatus
 import com.faro.mobile.domain.repository.ObservationRepository
+import com.faro.mobile.utils.SecureSyncManager
+import com.faro.mobile.utils.DataType
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -23,6 +25,14 @@ import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.Locale
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 
 @HiltWorker
 class SyncWorker @AssistedInject constructor(
@@ -33,9 +43,38 @@ class SyncWorker @AssistedInject constructor(
     private val sessionRepository: SessionRepository,
 ) : CoroutineWorker(appContext, workerParams) {
 
+    private val secureSyncManager = SecureSyncManager(appContext)
+
     override suspend fun doWork(): Result {
         return try {
             Timber.d("Starting observation sync")
+            
+            // Check if sync can proceed based on network
+            val syncCheck = secureSyncManager.canSync()
+            when (syncCheck) {
+                is com.faro.mobile.utils.SyncCheckResult.BLOCKED -> {
+                    Timber.w("Sync blocked: ${syncCheck.reason}")
+                    showNotification(
+                        title = "Sync Bloqueado",
+                        message = syncCheck.reason,
+                        suggestion = syncCheck.suggestion
+                    )
+                    return Result.success() // Don't retry, just wait for better network
+                }
+                is com.faro.mobile.utils.SyncCheckResult.DEFERRED -> {
+                    Timber.d("Sync deferred: ${syncCheck.reason}")
+                    showNotification(
+                        title = "Sync Adiado",
+                        message = syncCheck.reason,
+                        suggestion = syncCheck.suggestion
+                    )
+                    return Result.retry() // Retry later
+                }
+                is com.faro.mobile.utils.SyncCheckResult.ALLOWED -> {
+                    Timber.d("Sync allowed on ${syncCheck.networkType} (quality: ${syncCheck.networkQuality})")
+                }
+            }
+
             sessionRepository.refreshTokenIfNeeded()
 
             val pendingObservations = observationRepository.getPendingSyncObservations()
@@ -47,10 +86,43 @@ class SyncWorker @AssistedInject constructor(
 
             Timber.d("Syncing ${pendingObservations.size} observations")
 
+            // Filter observations based on sync policy
+            val syncQueue = pendingObservations.filter { observation ->
+                val dataSizeMb = estimateDataSize(observation)
+                val dataCheck = secureSyncManager.canSyncData(
+                    dataType = DataType.OBSERVATION,
+                    dataSizeMb = dataSizeMb,
+                    createdAt = observation.createdAt
+                )
+                when (dataCheck) {
+                    is com.faro.mobile.utils.SyncDataCheckResult.ALLOWED -> true
+                    is com.faro.mobile.utils.SyncDataCheckResult.BLOCKED -> {
+                        Timber.d("Observation ${observation.id} blocked: ${dataCheck.reason}")
+                        false
+                    }
+                }
+            }
+
+            if (syncQueue.isEmpty()) {
+                Timber.d("No observations can be synced based on current network policy")
+                return Result.success()
+            }
+
+            // Sort by priority (older observations first)
+            val sortedQueue = syncQueue.sortedByDescending { obs ->
+                secureSyncManager.getSyncPriority(DataType.OBSERVATION, obs.createdAt)
+            }
+
+            // Apply batch size based on network
+            val batchSize = secureSyncManager.getRecommendedBatchSize()
+            val batch = sortedQueue.take(batchSize)
+
+            Timber.d("Syncing batch of ${batch.size} observations (batch size: $batchSize)")
+
             val request = SyncBatchRequestDto(
-                deviceId = pendingObservations.firstOrNull()?.deviceId ?: "unknown_device",
+                deviceId = batch.firstOrNull()?.deviceId ?: "unknown_device",
                 appVersion = BuildConfig.VERSION_NAME,
-                items = pendingObservations.map { observation ->
+                items = batch.map { observation ->
                     val payload = observation.toSyncPayload()
                     SyncItemDto(
                         entityType = "observation",
@@ -67,7 +139,7 @@ class SyncWorker @AssistedInject constructor(
             val response = faroMobileApi.syncBatch(request)
             val resultsByLocalId = response.results.associateBy { it.entityLocalId }
 
-            pendingObservations.forEach { observation ->
+            batch.forEach { observation ->
                 val result = resultsByLocalId[observation.id]
                 if (result != null && result.status.equals("completed", ignoreCase = true)) {
                     observationRepository.updateSyncStatus(
@@ -232,5 +304,73 @@ private fun guessMimeType(file: File): String {
         "ogg", "opus" -> "audio/ogg"
         "mp3" -> "audio/mpeg"
         else -> "application/octet-stream"
+    }
+}
+
+private fun estimateDataSize(observation: VehicleObservation): Long {
+    var sizeMb = 0L
+    
+    // Estimate observation data size
+    sizeMb += 0.1 // Base observation data
+    
+    // Estimate plate read image size
+    observation.plateReads.firstOrNull()?.imagePath?.let { path ->
+        val file = File(path)
+        if (file.exists()) {
+            sizeMb += file.length() / (1024 * 1024)
+        }
+    }
+    
+    // Estimate suspicion report image size
+    observation.suspicionReport?.imagePath?.let { path ->
+        val file = File(path)
+        if (file.exists()) {
+            sizeMb += file.length() / (1024 * 1024)
+        }
+    }
+    
+    // Estimate suspicion report audio size
+    observation.suspicionReport?.audioPath?.let { path ->
+        val file = File(path)
+        if (file.exists()) {
+            sizeMb += file.length() / (1024 * 1024)
+        }
+    }
+    
+    return sizeMb
+}
+
+private fun showNotification(title: String, message: String, suggestion: String) {
+    val channelId = "sync_notifications"
+    val notificationId = 1001
+    
+    // Create notification channel for Android O+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val channel = NotificationChannel(
+            channelId,
+            "Sync Notifications",
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "Notifications for sync status"
+        }
+        
+        val notificationManager = applicationContext.getSystemService(NotificationManager::class.java)
+        notificationManager.createNotificationChannel(channel)
+    }
+    
+    // Build notification
+    val notification = NotificationCompat.Builder(applicationContext, channelId)
+        .setSmallIcon(android.R.drawable.ic_dialog_info)
+        .setContentTitle(title)
+        .setContentText(message)
+        .setStyle(NotificationCompat.BigTextStyle()
+            .bigText("$message\n\nSugestão: $suggestion"))
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setAutoCancel(true)
+        .build()
+    
+    // Show notification
+    with(NotificationManagerCompat.from(applicationContext)) {
+        notify(notificationId, notification)
     }
 }

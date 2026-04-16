@@ -28,9 +28,14 @@ class Settings(BaseSettings):
     # Server
     host: str = Field(default="0.0.0.0")
     port: int = Field(default=8000)
-    workers: int = Field(default=4)
+    workers: int = Field(default="auto")  # "auto" or number
     reload: bool = Field(default=False)
     auto_init_db: bool = Field(default=False)
+    
+    # Process Pool Executor for CPU-bound tasks
+    process_pool_max_workers: int = Field(default="auto")  # "auto" or number
+    process_pool_cpu_bound_workers: int = Field(default="auto")  # For CPU-intensive tasks
+    process_pool_io_bound_workers: int = Field(default="auto")  # For I/O-intensive tasks
     
     # Security
     secret_key: str = Field(default="CHANGE_ME_IN_PRODUCTION_32CHARS_MIN")
@@ -81,6 +86,7 @@ class Settings(BaseSettings):
     ocr_confidence_threshold: float = Field(default=0.7)
     ocr_auto_accept_enabled: bool = Field(default=False)
     ocr_auto_accept_threshold: float = Field(default=0.85)
+    ocr_device: str = Field(default="auto")  # "auto", "cpu", "cuda", "mps"
     
     # Rate Limiting
     rate_limit_requests: int = Field(default=100)
@@ -144,6 +150,27 @@ class Settings(BaseSettings):
                 return True
             if normalized in {"0", "false", "no", "off", "release", "production"}:
                 return False
+        return v
+    
+    @field_validator("workers", "process_pool_max_workers", "process_pool_cpu_bound_workers", "process_pool_io_bound_workers", mode="before")
+    @classmethod
+    def resolve_auto_workers(cls, v):
+        """Resolve 'auto' to actual worker count based on hardware."""
+        if isinstance(v, str) and v.strip().lower() == "auto":
+            try:
+                from app.utils.hardware_detector import get_hardware_capabilities, calculate_optimal_workers
+                hardware = get_hardware_capabilities()
+                
+                # Determine task type based on field name
+                if "cpu_bound" in str(cls):
+                    return calculate_optimal_workers(hardware, "cpu_bound")
+                elif "io_bound" in str(cls):
+                    return calculate_optimal_workers(hardware, "io_bound")
+                else:
+                    return calculate_optimal_workers(hardware, "general")
+            except ImportError:
+                # Fallback to default if hardware detection fails
+                return 4
         return v
     
     @field_validator("secret_key")

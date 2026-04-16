@@ -27,7 +27,7 @@ interface RouteMarkerProps {
   onPointClick?: (index: number) => void;
 }
 
-export default function RouteMarker({ route, onClick, editable, onPointClick }: RouteMarkerProps) {
+function RouteMarker({ route, onClick, editable, onPointClick }: RouteMarkerProps) {
   const [showPopup, setShowPopup] = useState(false);
 
   // Color based on risk level
@@ -210,3 +210,5 @@ export default function RouteMarker({ route, onClick, editable, onPointClick }: 
     </>
   );
 }
+
+export default React.memo(RouteMarker);

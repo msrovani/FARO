@@ -4,6 +4,8 @@ Implements geospatial pattern detection and route correlation without placeholde
 """
 from __future__ import annotations
 
+import asyncio
+
 import math
 from dataclasses import dataclass
 from datetime import datetime
@@ -310,3 +312,91 @@ async def get_route_timeline(
             )
         )
     return timeline_items
+
+
+# CPU-bound calculation functions for ProcessPoolExecutor
+def _calculate_recurrence_score_sync(timestamps: list[datetime]) -> float:
+    """Synchronous version for ProcessPoolExecutor."""
+    return _calculate_recurrence_score(timestamps)
+
+
+def _calculate_predominant_direction_sync(points: list[tuple[float, float]]) -> float | None:
+    """Synchronous version for ProcessPoolExecutor."""
+    return _calculate_predominant_direction(points)
+
+
+async def analyze_vehicle_route_parallel(
+    db: AsyncSession,
+    plate_number: str,
+    agency_id: UUID,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    min_observations: int = 3,
+) -> Optional[RouteAnalysisResult]:
+    """
+    Analyze vehicle route with parallel CPU-bound calculations.
+    
+    Uses ProcessPoolExecutor for CPU-intensive geospatial calculations.
+    """
+    from app.utils.process_pool import run_in_process_pool
+    
+    normalized_plate = plate_number.upper().strip()
+    query = select(VehicleObservation).where(
+        VehicleObservation.plate_number == normalized_plate,
+        VehicleObservation.agency_id == agency_id,
+    )
+    if start_date:
+        query = query.where(VehicleObservation.observed_at_local >= start_date)
+    if end_date:
+        query = query.where(VehicleObservation.observed_at_local <= end_date)
+    query = query.order_by(VehicleObservation.observed_at_local)
+
+    observations = (await db.execute(query)).scalars().all()
+    if len(observations) < min_observations:
+        return None
+
+    points = []
+    timestamps = []
+    for observation in observations:
+        point = to_shape(observation.location)
+        points.append((point.y, point.x))
+        timestamps.append(observation.observed_at_local)
+
+    # Parallel CPU-bound calculations with monitoring
+    recurrence_score, predominant_direction = await asyncio.gather(
+        run_in_process_pool(_calculate_recurrence_score_sync, timestamps, task_type="route_recurrence"),
+        run_in_process_pool(_calculate_predominant_direction_sync, points, task_type="route_direction")
+    )
+
+    centroid_lat = sum(point[0] for point in points) / len(points)
+    centroid_lng = sum(point[1] for point in points) / len(points)
+    min_lat = min(point[0] for point in points)
+    max_lat = max(point[0] for point in points)
+    min_lng = min(point[1] for point in points)
+    max_lng = max(point[1] for point in points)
+    bounding_box = [
+        (min_lat, min_lng),
+        (max_lat, min_lng),
+        (max_lat, max_lng),
+        (min_lat, max_lng),
+    ]
+
+    pattern_strength = _determine_pattern_strength(len(observations), recurrence_score, bounding_box)
+    corridor_points = _calculate_corridor(points) if pattern_strength in {"moderate", "strong"} else None
+    common_hours, common_days = _extract_common_hours_days(timestamps)
+
+    return RouteAnalysisResult(
+        plate_number=normalized_plate,
+        observation_count=len(observations),
+        first_observed_at=timestamps[0],
+        last_observed_at=timestamps[-1],
+        centroid_lat=centroid_lat,
+        centroid_lng=centroid_lng,
+        bounding_box=bounding_box,
+        corridor_points=corridor_points,
+        recurrence_score=recurrence_score,
+        pattern_strength=pattern_strength,
+        common_hours=common_hours,
+        common_days=common_days,
+        predominant_direction=predominant_direction,
+    )

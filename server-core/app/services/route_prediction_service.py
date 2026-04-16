@@ -196,6 +196,7 @@ async def get_recurring_route_alerts(
     agency_id: UUID,
     min_recurrence_score: float = 0.7,
     min_pattern_strength: float = 0.6,
+    limit: int = 100,
 ) -> List[dict]:
     """
     Get alerts for plates with strong recurring route patterns.
@@ -207,7 +208,7 @@ async def get_recurring_route_alerts(
             RoutePattern.recurrence_score >= min_recurrence_score,
             RoutePattern.pattern_strength >= min_pattern_strength,
         )
-    ).order_by(RoutePattern.recurrence_score.desc())
+    ).order_by(RoutePattern.recurrence_score.desc()).limit(limit)
     
     patterns = (await db.execute(query)).scalars().all()
     
