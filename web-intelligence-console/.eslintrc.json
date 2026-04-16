@@ -5,7 +5,7 @@
   },
   "settings": {
     "next": {
-      "rootDir": "web-intelligence-console/"
+      "rootDir": "web-intelligence-console"
     }
   }
 }
