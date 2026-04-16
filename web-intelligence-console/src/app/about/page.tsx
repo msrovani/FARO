@@ -112,7 +112,7 @@ export default function AboutPage() {
             </div>
             <h1 className="text-7xl font-black tracking-tighter mb-8 leading-[0.85]">
               F.A.R.O. <br/>
-              <span className="text-3xl font-light text-[#FFD700]">Ferramenta de Análise e Resposta Operacional</span>
+              <span className="text-3xl font-light text-[#FFD700]">Ferramenta de Análise de Rotas e Observações</span>
             </h1>
             <p className="text-xl leading-relaxed text-gray-100 max-w-2xl font-medium">
               Desenvolvido no coração do <span onClick={handleUnitClick} className="cursor-pointer text-[#FFD700] font-black uppercase tracking-wider hover:scale-105 inline-block transition-transform duration-300">3º RPMon</span> em Passo Fundo, o FARO personifica o lema institucional: 
