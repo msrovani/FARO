@@ -4,7 +4,7 @@ Generates alerts for suspicious route recurrences and pattern anomalies.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
@@ -37,8 +37,7 @@ class Alert:
     details: dict
     triggered_at: datetime
     requires_review: bool
-    targets: ["mobile_agents"],
-)
+    targets: List[str] = field(default_factory=lambda: ["mobile_agents"])
 
 
 async def get_active_agents_near(

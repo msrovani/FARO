@@ -642,15 +642,15 @@ class SuspicionReport(Base):
 
     # Structured fields
     reason: Mapped[SuspicionReason] = mapped_column(
-        Enum(SuspicionReason, name="suspicionreason", create_constraint=True),
+        Enum(SuspicionReason, name="suspicionreason", create_constraint=True, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     level: Mapped[SuspicionLevel] = mapped_column(
-        Enum(SuspicionReason, name="suspicionlevel", create_constraint=True),
+        Enum(SuspicionLevel, name="suspicionlevel", create_constraint=True, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     urgency: Mapped[UrgencyLevel] = mapped_column(
-        Enum(UrgencyLevel, name="urgencylevel", create_constraint=True),
+        Enum(UrgencyLevel, name="urgencylevel", create_constraint=True, values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
 
@@ -660,21 +660,20 @@ class SuspicionReport(Base):
     # --- ABORDAGEM (APPROACH) FIELDS ---
     # These fields capture the result of field approach
     abordado: Mapped[Optional[bool]] = mapped_column(
-        Boolean, nullable=True, description="Whether the vehicle was approached"
+        Boolean, nullable=True
     )
     nivel_abordagem: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True, description="Suspicion level during approach (1-10)"
+        Integer, nullable=True
     )
     ocorrencia_registrada: Mapped[Optional[bool]] = mapped_column(
-        Boolean, nullable=True, description="Whether an occurrence was registered"
+        Boolean, nullable=True
     )
     texto_ocorrencia: Mapped[Optional[str]] = mapped_column(
-        Text, nullable=True, description="Details of the registered occurrence"
+        Text, nullable=True
     )
     street_direction: Mapped[Optional[StreetNumberingDirection]] = mapped_column(
         Enum(StreetNumberingDirection, name="streetnumberingdirection", create_constraint=True),
         nullable=True,
-        description="Direction of the street numbering during approach",
     )
     # -------------------------------
 
@@ -766,7 +765,8 @@ class Alert(Base):
     suspicion_report: Mapped[Optional[SuspicionReport]] = relationship(
         back_populates="alerts"
     )
-    rule: Mapped[Optional["AlertRule"]] = relationship(back_populates="alerts")
+    # Temporarily disabled due to SQLAlchemy mapping error
+    # rule: Mapped[Optional["AlertRule"]] = relationship(back_populates="alerts")
 
     __table_args__ = (
         Index("ix_alert_severity_type", "severity", "alert_type"),
@@ -823,10 +823,6 @@ class AnalystGeofence(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # Relationships
-    user: Mapped["User"] = relationship()
-    agency: Mapped["Agency"] = relationship()
-
     __table_args__ = (
         Index("ix_analyst_geofence_user", "user_id"),
     )
@@ -843,7 +839,8 @@ class AnalystGeofence(Base):
     )
 
     # Relationships
-    alerts: Mapped[List[Alert]] = relationship(back_populates="rule")
+    user: Mapped["User"] = relationship(foreign_keys=[user_id])
+    agency: Mapped["Agency"] = relationship(foreign_keys=[agency_id])
 
 
 # =============================================================================
@@ -1134,6 +1131,75 @@ class AuditLog(Base):
     __table_args__ = (
         Index("ix_audit_resource", "resource_type", "resource_id"),
         Index("ix_audit_action_time", "action", "created_at"),
+    )
+
+
+class AlertHistory(Base):
+    """Historical record of all triggered alerts from Prometheus monitoring."""
+    
+    # Alert identification
+    alert_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    alert_group: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    
+    # Timing
+    fired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Severity and urgency
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)  # critical, warning, info
+    urgency: Mapped[str] = mapped_column(String(20), nullable=False)  # critical, high, medium, low
+    
+    # Alert details
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    insight: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    possible_causes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    solutions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Labels for Prometheus-style labels
+    labels: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    annotations: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    
+    # Status tracking
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    # TTL for cleanup (default 90 days)
+    ttl_days: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    
+    __table_args__ = (
+        Index("ix_alert_fired_severity", "fired_at", "severity"),
+        Index("ix_alert_group_fired", "alert_group", "fired_at"),
+        Index("ix_alert_unresolved", "resolved_at", "acknowledged"),
+    )
+
+
+class DashboardMetric(Base):
+    """
+    Stored dashboard metrics for historical analysis and trend.
+    Complements real-time Prometheus metrics with DB-backed history.
+    """
+    
+    # Metric identification
+    metric_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    metric_group: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # system, db, cache, user, algorithm
+    
+    # Value
+    value: Mapped[float] = mapped_column(Float, nullable=False)
+    value_type: Mapped[str] = mapped_column(String(20), nullable=False)  # gauge, counter, histogram_p50, histogram_p95
+    
+    # Labels for multi-dimensional metrics
+    labels: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    
+    # Timestamp
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    
+    # TTL for automatic cleanup (default 90 days)
+    ttl_days: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    
+    __table_args__ = (
+        Index("ix_dash_metric_group_time", "metric_group", "recorded_at"),
+        Index("ix_dash_metric_name_time", "metric_name", "recorded_at"),
     )
 
 
@@ -1637,10 +1703,10 @@ class SuspiciousRoute(Base):
 
     # Relationships
     creator: Mapped[User] = relationship(
-        foreign_keys=[created_by], back_populates="audit_logs"
+        foreign_keys=[created_by]
     )
     approver: Mapped[Optional[User]] = relationship(
-        foreign_keys=[approved_by], back_populates="audit_logs"
+        foreign_keys=[approved_by]
     )
 
     __table_args__ = (

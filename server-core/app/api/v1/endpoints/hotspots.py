@@ -12,7 +12,7 @@ from app.db.base import User, UserRole
 from app.schemas.hotspot import (
     HotspotAnalysisRequest,
     HotspotAnalysisResponse,
-    HotpointTimelineRequest,
+    HotspotTimelineRequest,
     HotspotTimelineResponse,
     HotspotPlatesRequest,
     HotspotPlatesResponse,

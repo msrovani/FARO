@@ -5,11 +5,13 @@ Supports both old format (LLL-NNNN) and Mercosur format (LLLNLNN)
 """
 
 import asyncio
+import hashlib
+import json
 import re
 import time
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional, Tuple
-from dataclasses import dataclass
 from PIL import Image
 import numpy as np
 
@@ -33,17 +35,21 @@ def detect_gpu_device(device_preference: str = "auto") -> str:
     # Try CUDA (NVIDIA)
     try:
         import torch
+
         if torch.cuda.is_available():
             return "cuda"
     except ImportError:
+        # torch opcional (não instalado em ambientes sem GPU) - fallback aceitável
         pass
 
     # Try MPS (Apple Silicon)
     try:
         import torch
-        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return "mps"
     except (ImportError, AttributeError):
+        # torch opcional - fallback para CPU
         pass
 
     # Fallback to CPU
@@ -53,6 +59,7 @@ def detect_gpu_device(device_preference: str = "auto") -> str:
 @dataclass
 class OcrResult:
     """Result of OCR processing"""
+
     plate_number: str
     confidence: float
     processing_time_ms: float
@@ -74,7 +81,7 @@ class OcrService:
         self,
         yolo_model_path: Optional[str] = None,
         easyocr_langs: list = None,
-        device: str = "cpu"
+        device: str = "cpu",
     ):
         """
         Initialize OCR service
@@ -88,6 +95,14 @@ class OcrService:
         self.easyocr_langs = easyocr_langs or ["en", "pt"]
         self.device = device
 
+        # Select model based on device (adaptive)
+        if device in ["cuda", "mps"]:
+            # GPU: use larger, more accurate model
+            self.model_name = "yolov11s.pt"  # Small (mais preciso)
+        else:
+            # CPU: use smaller, faster model
+            self.model_name = "yolov11n.pt"  # Nano (mais rápido)
+
         self._plate_detector: Optional[YOLO] = None
         self._text_reader: Optional[easyocr.Reader] = None
 
@@ -98,24 +113,49 @@ class OcrService:
             if self.yolo_model_path and Path(self.yolo_model_path).exists():
                 self._plate_detector = YOLO(self.yolo_model_path)
             else:
-                # Use default YOLOv11 model (will download on first run)
-                self._plate_detector = YOLO("yolov11n.pt")
-            
+                # Use adaptive model based on device
+                self._plate_detector = YOLO(self.model_name)
+
             # Set device
             self._plate_detector.to(self.device)
 
         if self._text_reader is None:
             # Load EasyOCR for text recognition
             self._text_reader = easyocr.Reader(
-                self.easyocr_langs,
-                gpu=self.device != "cpu",
-                verbose=False
+                self.easyocr_langs, gpu=self.device != "cpu", verbose=False
             )
 
+    def _get_redis_client(self):
+        """Get Redis client for caching."""
+        try:
+            from app.utils.cache import get_redis_client
+            return get_redis_client()
+        except Exception:
+            return None
+
+    def _preprocess_image(self, image_np: np.ndarray) -> np.ndarray:
+        """
+        Preprocess image for optimal YOLO performance (640x640).
+        
+        Args:
+            image_np: Image as numpy array
+            
+        Returns:
+            Preprocessed image as numpy array
+        """
+        # Convert to PIL if necessary
+        if not isinstance(image_np, Image.Image):
+            image = Image.fromarray(image_np)
+        else:
+            image = image_np
+        
+        # Resize to 640x640 (optimal size for YOLOv11)
+        image = image.resize((640, 640), Image.LANCZOS)
+        
+        return np.array(image)
+
     def process_image(
-        self,
-        image_path: str,
-        confidence_threshold: float = 0.5
+        self, image_path: str, confidence_threshold: float = 0.5
     ) -> Optional[OcrResult]:
         """
         Process an image to extract license plate
@@ -136,11 +176,12 @@ class OcrService:
             image = Image.open(image_path)
             image_np = np.array(image)
 
+            # Preprocess image for optimal YOLO performance
+            image_np = self._preprocess_image(image_np)
+
             # Step 1: Detect license plate with YOLO
             plate_results = self._plate_detector(
-                image_np,
-                conf=confidence_threshold,
-                verbose=False
+                image_np, conf=confidence_threshold, verbose=False
             )
 
             if not plate_results or not plate_results[0].boxes:
@@ -152,7 +193,7 @@ class OcrService:
 
             # Crop the plate region
             x1, y1, x2, y2 = best_box.xyxy[0].cpu().numpy()
-            plate_region = image_np[int(y1):int(y2), int(x1):int(x2)]
+            plate_region = image_np[int(y1) : int(y2), int(x1) : int(x2)]
 
             # Step 2: OCR on the cropped plate
             ocr_results = self._text_reader.readtext(plate_region)
@@ -175,7 +216,7 @@ class OcrService:
                 plate_number=plate_text,
                 confidence=ocr_confidence,
                 processing_time_ms=processing_time_ms,
-                plate_format=plate_format
+                plate_format=plate_format,
             )
 
         except Exception as e:
@@ -184,9 +225,7 @@ class OcrService:
             return None
 
     def process_image_bytes(
-        self,
-        image_bytes: bytes,
-        confidence_threshold: float = 0.5
+        self, image_bytes: bytes, confidence_threshold: float = 0.5
     ) -> Optional[OcrResult]:
         """
         Process image bytes to extract license plate
@@ -200,18 +239,31 @@ class OcrService:
         """
         self._load_models()
 
+        # Try to get from cache first
+        redis_client = self._get_redis_client()
+        if redis_client:
+            try:
+                image_hash = hashlib.sha256(image_bytes).hexdigest()
+                cache_key = f"ocr_result:{image_hash}:{confidence_threshold}"
+                cached = redis_client.get(cache_key)
+                if cached:
+                    return OcrResult(**json.loads(cached))
+            except Exception:
+                pass  # Cache error, continue with processing
+
         try:
             # Load image from bytes
             image = Image.open(image_bytes)
             image_np = np.array(image)
 
+            # Preprocess image for optimal YOLO performance
+            image_np = self._preprocess_image(image_np)
+
             start_time = time.time()
 
             # Step 1: Detect license plate with YOLO
             plate_results = self._plate_detector(
-                image_np,
-                conf=confidence_threshold,
-                verbose=False
+                image_np, conf=confidence_threshold, verbose=False
             )
 
             if not plate_results or not plate_results[0].boxes:
@@ -223,7 +275,7 @@ class OcrService:
 
             # Crop the plate region
             x1, y1, x2, y2 = best_box.xyxy[0].cpu().numpy()
-            plate_region = image_np[int(y1):int(y2), int(x1):int(x2)]
+            plate_region = image_np[int(y1) : int(y2), int(x1) : int(x2)]
 
             # Step 2: OCR on the cropped plate
             ocr_results = self._text_reader.readtext(plate_region)
@@ -242,12 +294,22 @@ class OcrService:
 
             processing_time_ms = (time.time() - start_time) * 1000
 
-            return OcrResult(
+            result = OcrResult(
                 plate_number=plate_text,
                 confidence=ocr_confidence,
                 processing_time_ms=processing_time_ms,
-                plate_format=plate_format
+                plate_format=plate_format,
             )
+
+            # Cache the result
+            if redis_client and result:
+                try:
+                    cache_key = f"ocr_result:{image_hash}:{confidence_threshold}"
+                    redis_client.setex(cache_key, 3600, json.dumps(asdict(result)))
+                except Exception:
+                    pass  # Cache error, ignore
+
+            return result
 
         except Exception as e:
             print(f"OCR processing error: {e}")
@@ -280,12 +342,12 @@ class OcrService:
             (is_valid, format_type)
         """
         plate_clean = plate_number.upper().replace(" ", "").replace("-", "")
-        
+
         if self.OLD_PLATE_PATTERN.match(plate_clean):
             return True, "old"
         elif self.MERCOSUR_PLATE_PATTERN.match(plate_clean):
             return True, "mercusor"
-        
+
         return False, "unknown"
 
 
@@ -294,27 +356,25 @@ class AsyncOcrService:
     Async wrapper for OCR service using ProcessPoolExecutor.
     Provides async methods for CPU-bound OCR operations.
     """
-    
+
     def __init__(self, ocr_service: OcrService):
         self._ocr_service = ocr_service
-    
+
     async def process_image_async(
-        self,
-        image_path: str,
-        confidence_threshold: float = 0.5
+        self, image_path: str, confidence_threshold: float = 0.5
     ) -> Optional[OcrResult]:
         """
         Async wrapper for process_image using ProcessPoolExecutor.
-        
+
         Args:
             image_path: Path to image file
             confidence_threshold: Minimum confidence for plate detection
-            
+
         Returns:
             OcrResult if successful, None otherwise
         """
         from app.utils.process_pool import run_in_process_pool
-        
+
         return await run_in_process_pool(
             self._ocr_service.process_image,
             image_path,
@@ -323,47 +383,41 @@ class AsyncOcrService:
             enable_monitoring=True,
             enable_circuit_breaker=True,
         )
-    
+
     async def process_image_bytes_async(
-        self,
-        image_bytes: bytes,
-        confidence_threshold: float = 0.5
+        self, image_bytes: bytes, confidence_threshold: float = 0.5
     ) -> Optional[OcrResult]:
         """
         Async wrapper for process_image_bytes using ProcessPoolExecutor.
-        
+
         Args:
             image_bytes: Image data as bytes
             confidence_threshold: Minimum confidence for plate detection
-            
+
         Returns:
             OcrResult if successful, None otherwise
         """
         from app.utils.process_pool import run_in_process_pool
-        
+
         return await run_in_process_pool(
-            self._ocr_service.process_image_bytes,
-            image_bytes,
-            confidence_threshold
+            self._ocr_service.process_image_bytes, image_bytes, confidence_threshold
         )
-    
+
     async def process_batch_async(
-        self,
-        image_paths: list[str],
-        confidence_threshold: float = 0.5
+        self, image_paths: list[str], confidence_threshold: float = 0.5
     ) -> list[Optional[OcrResult]]:
         """
         Process multiple images in parallel using ProcessPoolExecutor.
-        
+
         Args:
             image_paths: List of image file paths
             confidence_threshold: Minimum confidence for plate detection
-            
+
         Returns:
             List of OcrResult (or None if failed)
         """
         from app.utils.process_pool import run_batch_in_process_pool
-        
+
         args_list = [(path, confidence_threshold) for path in image_paths]
         return await run_batch_in_process_pool(
             self._ocr_service.process_image,
@@ -398,14 +452,12 @@ def get_ocr_service(
         if device is None:
             try:
                 from app.core.config import settings
+
                 device = detect_gpu_device(settings.ocr_device)
             except ImportError:
                 device = detect_gpu_device("auto")
-        
-        _ocr_service = OcrService(
-            yolo_model_path=yolo_model_path,
-            device=device
-        )
+
+        _ocr_service = OcrService(yolo_model_path=yolo_model_path, device=device)
     return _ocr_service
 
 

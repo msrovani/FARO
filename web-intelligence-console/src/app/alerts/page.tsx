@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import MapBase from "../components/map/MapBase";
 import AlertMarker from "../components/AlertMarker";
 import { AlertOctagon, AlertTriangle, Filter, RefreshCw, Check, X } from "lucide-react";
+import { alertsApi } from "@/app/services/api";
 
 interface Alert {
   alert_type: string;
@@ -19,6 +20,7 @@ interface Alert {
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const [filters, setFilters] = useState({
     alert_type: "",
@@ -26,64 +28,46 @@ export default function AlertsPage() {
     requires_review: null as boolean | null,
   });
 
-  // Mock data - replace with API call
-  useEffect(() => {
-    setTimeout(() => {
-      setAlerts([
-        {
-          alert_type: "suspicious_route_match",
-          plate_number: "ABC-1234",
-          severity: "high",
-          confidence: 0.9,
-          details: {
-            matched_routes: [
-              { name: "Rota Tráfico Porto Alegre", risk_level: "high" },
-            ],
-            distance_meters: 50,
-          },
-          triggered_at: new Date().toISOString(),
-          requires_review: true,
-          location: { latitude: -30.0346, longitude: -51.2177 },
-        },
-        {
-          alert_type: "pattern_drift",
-          plate_number: "XYZ-5678",
-          severity: "medium",
-          confidence: 0.7,
-          details: {
-            drift_percent: 45,
-            threshold_percent: 30,
-            out_of_corridor_count: 8,
-            total_recent_observations: 15,
-          },
-          triggered_at: new Date(Date.now() - 3600000).toISOString(),
-          requires_review: true,
-          location: { latitude: -30.0450, longitude: -51.2300 },
-        },
-        {
-          alert_type: "recurring_route",
-          plate_number: "DEF-9012",
-          severity: "critical",
-          confidence: 0.95,
-          details: {
-            recurrence_score: 0.92,
-            pattern_strength: 0.88,
-            primary_corridor: "Centro-Norte",
-            predominant_direction: "inbound",
-            observation_count: 67,
-          },
-          triggered_at: new Date(Date.now() - 7200000).toISOString(),
-          requires_review: true,
-          location: { latitude: -30.0250, longitude: -51.2050 },
-        },
-      ]);
+  const loadAlerts = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await alertsApi.getAggregatedAlerts({
+        alert_type: filters.alert_type || undefined,
+        severity: filters.severity || undefined,
+        limit: 150,
+      });
+
+      const normalized: Alert[] = response.alerts.map((item) => {
+        const details = item.details || {};
+        const lat = Number((details as any).latitude ?? (details as any).lat ?? (details as any).location?.latitude);
+        const lon = Number((details as any).longitude ?? (details as any).lng ?? (details as any).location?.longitude);
+        const hasLocation = Number.isFinite(lat) && Number.isFinite(lon);
+
+        return {
+          ...item,
+          details,
+          location: hasLocation ? { latitude: lat, longitude: lon } : undefined,
+        };
+      });
+
+      setAlerts(normalized);
+    } catch (err) {
+      console.error(err);
+      setError("Nao foi possivel carregar alertas reais.");
+      setAlerts([]);
+    } finally {
       setLoading(false);
-    }, 1000);
-  }, []);
+    }
+  };
+
+  useEffect(() => {
+    void loadAlerts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.alert_type, filters.severity]);
 
   const handleRefresh = () => {
-    setLoading(true);
-    setTimeout(() => setLoading(false), 1000);
+    void loadAlerts();
   };
 
   const handleApproveAlert = (alert: Alert) => {
@@ -218,6 +202,12 @@ export default function AlertsPage() {
             </div>
           </div>
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/40 bg-red-900/20 p-3 text-xs text-red-200">
+            {error}
+          </div>
+        )}
 
         {/* Alerts List */}
         <div>

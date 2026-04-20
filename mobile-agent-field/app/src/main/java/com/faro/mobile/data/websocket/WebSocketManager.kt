@@ -130,7 +130,7 @@ class WebSocketManager @Inject constructor(
         }
         
         reconnectAttempts++
-        val delayMs = (1000 * (2.0.pow(reconnectAttempts))).toLong().coerceAtMost(30000)
+        val delayMs = (1000L * Math.pow(2.0, reconnectAttempts.toDouble())).toLong().coerceAtMost(30000)
         
         scope.launch {
             Log.d(TAG, "Attempting reconnect in ${delayMs}ms (attempt $reconnectAttempts/$maxReconnectAttempts)")
@@ -238,8 +238,4 @@ class WebSocketManager @Inject constructor(
     companion object {
         private const val TAG = "WebSocketManager"
     }
-}
-
-private fun Double.pow(exponent: Int): Double {
-    return Math.pow(this, exponent.toDouble())
 }

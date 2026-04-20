@@ -38,7 +38,14 @@ services:
     networks:
       - faro-network
 
-  # MinIO for S3-compatible storage
+  # MinIO for S3-compatible storage (OPTIONAL)
+  # ⚠️ MinIO is OPTIONAL - FARO works with local storage fallback if not installed
+  # To start MinIO: docker-compose up -d minio
+  # To skip MinIO: docker-compose up -d (without minio)
+  # Porta 9000: MinIO S3 API (reservada)
+  # Porta 9001: MinIO Console UI (reservada)
+  # Porta 9002: Analytics Dashboard (usada para evitar conflitos)
+  # Se MinIO não estiver disponível, assets são armazenados em ./local_assets/
   minio:
     image: minio/minio:latest
     container_name: faro-minio

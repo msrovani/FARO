@@ -41,7 +41,8 @@
       "@/services/*": [
         "./src/app/services/*"
       ]
-    }
+    },
+    "target": "ES2017"
   },
   "include": [
     "next-env.d.ts",

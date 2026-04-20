@@ -1,6 +1,7 @@
 """
 Minimal Redis Streams publisher for internal FARO events.
 """
+
 from __future__ import annotations
 
 import json
@@ -58,7 +59,9 @@ class EventBus:
             await self._reset_client()
             return False
         except Exception as exc:
-            logger.exception("Falha nao esperada ao publicar evento %s: %s", event_name, exc)
+            logger.exception(
+                "Falha nao esperada ao publicar evento %s: %s", event_name, exc
+            )
             await self._reset_client()
             return False
 
@@ -66,8 +69,8 @@ class EventBus:
         if self._client is not None:
             try:
                 await self._client.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Erro ao fechar Redis client no reset: %s", exc)
         self._client = None
 
 

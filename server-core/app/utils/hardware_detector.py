@@ -2,6 +2,7 @@
 Hardware Detection and Adaptive Configuration
 Automatically detects available hardware capabilities and configures optimal settings.
 """
+
 import os
 import platform
 import psutil
@@ -12,6 +13,7 @@ from typing import Optional
 @dataclass
 class HardwareCapabilities:
     """Detected hardware capabilities."""
+
     cpu_count: int
     cpu_count_physical: int
     total_memory_gb: float
@@ -26,42 +28,44 @@ class HardwareCapabilities:
 def detect_hardware() -> HardwareCapabilities:
     """
     Detect hardware capabilities automatically.
-    
+
     Returns:
         HardwareCapabilities with detected specs
     """
     # CPU detection
     cpu_count = os.cpu_count() or 1
     cpu_count_physical = psutil.cpu_count(logical=False) or cpu_count
-    
+
     # Memory detection
     memory = psutil.virtual_memory()
     total_memory_gb = memory.total / (1024**3)
     available_memory_gb = memory.available / (1024**3)
-    
+
     # GPU detection
     gpu_available = False
     gpu_type = None
     gpu_memory_gb = None
-    
+
     try:
         import torch
+
         if torch.cuda.is_available():
             gpu_available = True
             gpu_type = "cuda"
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             gpu_available = True
             gpu_type = "mps"
             # MPS doesn't expose memory easily, estimate based on system
             gpu_memory_gb = min(8.0, total_memory_gb * 0.5)
     except ImportError:
+        # torch não instalado = GPU detection falha gracefully (fallback esperado, não erro)
         pass
-    
+
     # Platform detection
     platform_name = platform.system()
     architecture = platform.machine()
-    
+
     return HardwareCapabilities(
         cpu_count=cpu_count,
         cpu_count_physical=cpu_count_physical,
@@ -75,14 +79,16 @@ def detect_hardware() -> HardwareCapabilities:
     )
 
 
-def calculate_optimal_workers(hardware: HardwareCapabilities, task_type: str = "general") -> int:
+def calculate_optimal_workers(
+    hardware: HardwareCapabilities, task_type: str = "general"
+) -> int:
     """
     Calculate optimal number of workers based on hardware and task type.
-    
+
     Args:
         hardware: Detected hardware capabilities
         task_type: Type of task ("general", "cpu_bound", "io_bound", "gpu_bound")
-        
+
     Returns:
         Optimal number of workers
     """
@@ -104,23 +110,27 @@ def calculate_optimal_workers(hardware: HardwareCapabilities, task_type: str = "
     else:
         # General: balanced approach
         workers = max(2, hardware.cpu_count)
-    
+
     # Adjust based on available memory (reserve 2GB for system)
     memory_per_worker_gb = 0.5  # Estimated memory per worker
-    max_workers_by_memory = int((hardware.available_memory_gb - 2.0) / memory_per_worker_gb)
+    max_workers_by_memory = int(
+        (hardware.available_memory_gb - 2.0) / memory_per_worker_gb
+    )
     workers = min(workers, max_workers_by_memory)
-    
+
     return max(1, workers)
 
 
-def calculate_optimal_batch_size(hardware: HardwareCapabilities, task_type: str = "general") -> int:
+def calculate_optimal_batch_size(
+    hardware: HardwareCapabilities, task_type: str = "general"
+) -> int:
     """
     Calculate optimal batch size based on hardware.
-    
+
     Args:
         hardware: Detected hardware capabilities
         task_type: Type of task
-        
+
     Returns:
         Optimal batch size
     """
@@ -147,7 +157,7 @@ _hardware_cache: Optional[HardwareCapabilities] = None
 def get_hardware_capabilities() -> HardwareCapabilities:
     """
     Get cached hardware capabilities.
-    
+
     Returns:
         HardwareCapabilities instance
     """

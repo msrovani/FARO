@@ -3,6 +3,7 @@ F.A.R.O. Audit API - trilha de auditoria e governanca.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -33,10 +34,32 @@ async def list_audit_logs(
     action: str | None = None,
     resource_type: str | None = None,
     resource_id: UUID | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    ttl_days: int = 30,
     pagination: PaginationParams = Depends(),
     current_user: User = Depends(require_governance_role),
     db: AsyncSession = Depends(get_db),
 ):
+    from datetime import timedelta
+    
+    # Calculate date range from TTL if not provided
+    query_start = None
+    if start_date:
+        try:
+            query_start = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+        except:
+            pass
+    elif ttl_days:
+        query_start = datetime.utcnow() - timedelta(days=ttl_days)
+    
+    query_end = None
+    if end_date:
+        try:
+            query_end = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+        except:
+            pass
+    
     query = (
         select(AuditLog, User)
         .outerjoin(User, User.id == AuditLog.user_id)
@@ -50,6 +73,10 @@ async def list_audit_logs(
         query = query.where(AuditLog.resource_type == resource_type)
     if resource_id:
         query = query.where(AuditLog.resource_id == resource_id)
+    if query_start:
+        query = query.where(AuditLog.created_at >= query_start)
+    if query_end:
+        query = query.where(AuditLog.created_at <= query_end)
 
     rows = (await db.execute(query)).all()
     return [

@@ -256,3 +256,21 @@ class OcrValidationResponse(BaseModel):
     is_valid_format: bool
     improved_over_mobile: bool = False
     mobile_comparison: Optional[Dict[str, Any]] = None
+
+
+class OcrBatchValidationRequest(BaseModel):
+    """Request for batch OCR validation."""
+    model_config = ConfigDict(from_attributes=True)
+    
+    images_base64: List[str] = Field(..., description="List of base64 encoded images")
+    confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class OcrBatchValidationResponse(BaseModel):
+    """Response for batch OCR validation."""
+    model_config = ConfigDict(from_attributes=True)
+    
+    results: List[OcrValidationResponse]
+    total_processed: int
+    successful: int
+    failed: int

@@ -3,7 +3,7 @@ F.A.R.O. User Schemas - Authentication and user management
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict

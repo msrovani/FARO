@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.deps import get_db
 from app.api.v1.endpoints.auth import get_current_user
+from app.core.config import settings
 from app.core.observability import (
     record_feedback_pending,
     record_feedback_read,
@@ -46,6 +47,7 @@ from app.db.base import (
     WatchlistStatus,
     ConvoyEvent,
     CaseStatus,
+    CaseLink,
     Agency,
 )
 from app.schemas.analytics import (
@@ -61,6 +63,8 @@ from app.schemas.analytics import (
     IntelligenceCaseCreate,
     IntelligenceCaseResponse,
     IntelligenceCaseUpdate,
+    CaseLinkCreate,
+    CaseLinkResponse,
     ObservationAnalyticDetailResponse,
     SuspicionScoreFactorResponse,
     SuspicionScoreResponse,
@@ -235,6 +239,19 @@ def serialize_case(case_row: IntelligenceCase, creator_name: str | None) -> Inte
         created_by_name=creator_name,
         created_at=case_row.created_at,
         updated_at=case_row.updated_at,
+    )
+
+
+def serialize_case_link(link: CaseLink, creator_name: str | None) -> CaseLinkResponse:
+    return CaseLinkResponse(
+        id=link.id,
+        case_id=link.case_id,
+        link_type=link.link_type,
+        linked_entity_id=link.linked_entity_id,
+        linked_label=link.linked_label,
+        created_by=link.created_by,
+        created_by_name=creator_name,
+        created_at=link.created_at,
     )
 
 
@@ -1308,6 +1325,36 @@ async def update_watchlist_entry(
     return serialize_watchlist_entry(entry, current_user.full_name)
 
 
+@router.delete("/watchlist/{entry_id}")
+@router.delete("/watchlists/{entry_id}")
+async def delete_watchlist_entry(
+    entry_id: UUID,
+    current_user: User = Depends(require_intelligence_role),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        scoped_query(
+            select(WatchlistEntry).where(WatchlistEntry.id == entry_id),
+            current_user,
+            WatchlistEntry.agency_id,
+        )
+    )
+    entry = result.scalar_one_or_none()
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Cadastro de watchlist nao encontrado")
+
+    await db.delete(entry)
+    await log_audit_event(
+        db,
+        actor=current_user,
+        action="watchlist_deleted",
+        resource_type="watchlist_entry",
+        resource_id=entry.id,
+        details={"plate_number": entry.plate_number, "status": entry.status.value},
+    )
+    return {"message": "Cadastro de watchlist excluído com sucesso"}
+
+
 @router.get("/routes", response_model=list[AlgorithmResultResponse])
 async def list_route_anomalies(
     plate_number: str | None = None,
@@ -1534,6 +1581,31 @@ async def create_case(
     return serialize_case(case_row, current_user.full_name)
 
 
+@router.get("/cases/{case_id}", response_model=IntelligenceCaseResponse)
+async def get_case(
+    case_id: UUID,
+    current_user: User = Depends(require_intelligence_role),
+    db: AsyncSession = Depends(get_db),
+):
+    case_row = (
+        await db.execute(
+            scoped_query(
+                select(IntelligenceCase).where(IntelligenceCase.id == case_id),
+                current_user,
+                IntelligenceCase.agency_id,
+            )
+        )
+    ).scalars().first()
+    if case_row is None:
+        raise HTTPException(status_code=404, detail="Caso analitico nao encontrado")
+    
+    creator = (
+        await db.execute(select(User).where(User.id == case_row.created_by))
+    ).scalars().first()
+    
+    return serialize_case(case_row, creator.full_name if creator else None)
+
+
 @router.patch("/cases/{case_id}", response_model=IntelligenceCaseResponse)
 async def update_case(
     case_id: UUID,
@@ -1567,6 +1639,143 @@ async def update_case(
         justification=case_row.hypothesis or case_row.summary,
     )
     return serialize_case(case_row, current_user.full_name)
+
+
+@router.delete("/cases/{case_id}")
+async def delete_case(
+    case_id: UUID,
+    current_user: User = Depends(require_intelligence_role),
+    db: AsyncSession = Depends(get_db),
+):
+    case_row = (
+        await db.execute(
+            scoped_query(
+                select(IntelligenceCase).where(IntelligenceCase.id == case_id),
+                current_user,
+                IntelligenceCase.agency_id,
+            )
+        )
+    ).scalars().first()
+    if case_row is None:
+        raise HTTPException(status_code=404, detail="Caso analitico nao encontrado")
+
+    await db.delete(case_row)
+    await log_audit_event(
+        db,
+        actor=current_user,
+        action="intelligence_case_deleted",
+        resource_type="intelligence_case",
+        resource_id=case_row.id,
+        details={"title": case_row.title, "status": case_row.status.value},
+        justification=case_row.hypothesis or case_row.summary,
+    )
+    return {"message": "Caso analitico excluído com sucesso"}
+
+
+@router.get("/cases/{case_id}/links", response_model=list[CaseLinkResponse])
+async def list_case_links(
+    case_id: UUID,
+    link_type: CaseLinkType | None = None,
+    current_user: User = Depends(require_intelligence_role),
+    db: AsyncSession = Depends(get_db),
+):
+    case_row = (
+        await db.execute(
+            scoped_query(
+                select(IntelligenceCase).where(IntelligenceCase.id == case_id),
+                current_user,
+                IntelligenceCase.agency_id,
+            )
+        )
+    ).scalars().first()
+    if case_row is None:
+        raise HTTPException(status_code=404, detail="Caso analitico nao encontrado")
+
+    query = select(CaseLink, User).join(User, User.id == CaseLink.created_by).where(CaseLink.case_id == case_id)
+    if link_type:
+        query = query.where(CaseLink.link_type == link_type)
+    query = query.order_by(CaseLink.created_at.desc())
+
+    rows = (await db.execute(query)).all()
+    return [serialize_case_link(link, creator.full_name) for link, creator in rows]
+
+
+@router.post("/cases/{case_id}/links", response_model=CaseLinkResponse)
+async def add_case_link(
+    case_id: UUID,
+    payload: CaseLinkCreate,
+    current_user: User = Depends(require_intelligence_role),
+    db: AsyncSession = Depends(get_db),
+):
+    case_row = (
+        await db.execute(
+            scoped_query(
+                select(IntelligenceCase).where(IntelligenceCase.id == case_id),
+                current_user,
+                IntelligenceCase.agency_id,
+            )
+        )
+    ).scalars().first()
+    if case_row is None:
+        raise HTTPException(status_code=404, detail="Caso analitico nao encontrado")
+
+    link = CaseLink(
+        case_id=case_id,
+        link_type=payload.link_type,
+        linked_entity_id=payload.linked_entity_id,
+        linked_label=payload.linked_label,
+        created_by=current_user.id,
+    )
+    db.add(link)
+    await db.flush()
+    await log_audit_event(
+        db,
+        actor=current_user,
+        action="case_link_created",
+        resource_type="case_link",
+        resource_id=link.id,
+        details={"link_type": link.link_type.value, "entity_id": str(link.linked_entity_id)},
+    )
+    return serialize_case_link(link, current_user.full_name)
+
+
+@router.delete("/cases/{case_id}/links/{link_id}")
+async def remove_case_link(
+    case_id: UUID,
+    link_id: UUID,
+    current_user: User = Depends(require_intelligence_role),
+    db: AsyncSession = Depends(get_db),
+):
+    case_row = (
+        await db.execute(
+            scoped_query(
+                select(IntelligenceCase).where(IntelligenceCase.id == case_id),
+                current_user,
+                IntelligenceCase.agency_id,
+            )
+        )
+    ).scalars().first()
+    if case_row is None:
+        raise HTTPException(status_code=404, detail="Caso analitico nao encontrado")
+
+    link = (
+        await db.execute(
+            select(CaseLink).where(CaseLink.id == link_id, CaseLink.case_id == case_id)
+        )
+    ).scalars().first()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Vinculo de caso nao encontrado")
+
+    await db.delete(link)
+    await log_audit_event(
+        db,
+        actor=current_user,
+        action="case_link_deleted",
+        resource_type="case_link",
+        resource_id=link.id,
+        details={"link_type": link.link_type.value, "entity_id": str(link.linked_entity_id)},
+    )
+    return {"message": "Vinculo de caso removido com sucesso"}
 
 
 @router.get("/analytics/overview")

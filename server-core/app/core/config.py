@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     database_max_overflow: int = Field(default=10)
     database_pool_timeout: int = Field(default=30)
     
+    # PgBouncer Connection Pooling (Otimização Fase 2.1)
+    pgbouncer_enabled: bool = Field(default=False)
+    pgbouncer_host: str = Field(default="localhost")
+    pgbouncer_port: int = Field(default=6432)
+    pgbouncer_pool_mode: str = Field(default="transaction")  # "transaction" or "session"
+    pgbouncer_max_client_conn: int = Field(default=1000)
+    pgbouncer_default_pool_size: int = Field(default=25)
+    pgbouncer_min_pool_size: int = Field(default=5)
+    
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0")
     redis_streams_url: str = Field(default="redis://localhost:6379/1")
@@ -71,7 +80,14 @@ class Settings(BaseSettings):
     redis_socket_timeout: int = Field(default=5)
     redis_socket_connect_timeout: int = Field(default=5)
     
-    # S3/MinIO Storage
+    # Cache TTL configurável por tipo
+    cache_ttl_short: int = Field(default=60)      # 1 minute (dados mutáveis)
+    cache_ttl_medium: int = Field(default=300)    # 5 minutes (dados normais)
+    cache_ttl_long: int = Field(default=3600)   # 1 hour (dados estáticos)
+    
+    # S3/MinIO Storage (Porta 9000 reservada para MinIO S3 API)
+    # Se s3_enabled=False, usa fallback para armazenamento local
+    s3_enabled: bool = Field(default=False)  # MinIO opcional - usa local storage se False
     s3_endpoint: str = Field(default="http://localhost:9000")
     s3_access_key: str = Field(default="minioadmin")
     s3_secret_key: str = Field(default="minioadmin")
@@ -79,6 +95,10 @@ class Settings(BaseSettings):
     s3_region: str = Field(default="us-east-1")
     s3_secure: bool = Field(default=False)
     s3_presigned_url_expiry: int = Field(default=3600)  # 1 hour
+    
+    # Local Storage Fallback (usado quando MinIO não está disponível)
+    local_storage_path: str = Field(default="./local_assets")
+    local_storage_max_size_mb: int = Field(default=10240)  # 10GB
     
     # OCR Service (ML Kit integration via adapter)
     ocr_service_url: Optional[str] = Field(default=None)

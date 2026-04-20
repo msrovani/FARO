@@ -13,14 +13,12 @@ import {
   WatchlistStatus,
 } from "@/app/types";
 
-const statusOptions: WatchlistStatus[] = ["active", "suspended", "expired", "closed"];
+const statusOptions: WatchlistStatus[] = ["active", "inactive", "archived"];
 const categoryOptions: WatchlistCategory[] = [
-  "suspect_vehicle",
-  "monitored_vehicle",
-  "case_related",
-  "possible_clone",
-  "partial_plate",
-  "visual_only",
+  "stolen",
+  "suspicious",
+  "wanted",
+  "monitoring",
 ];
 
 export default function WatchlistPage() {
@@ -29,7 +27,7 @@ export default function WatchlistPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<WatchlistStatus | "all">("all");
 
-  const [category, setCategory] = useState<WatchlistCategory>("suspect_vehicle");
+  const [category, setCategory] = useState<WatchlistCategory>("suspicious");
   const [plateNumber, setPlateNumber] = useState("");
   const [platePartial, setPlatePartial] = useState("");
   const [vehicleModel, setVehicleModel] = useState("");
@@ -196,7 +194,7 @@ export default function WatchlistPage() {
   }
 
   async function toggleStatus(entry: WatchlistEntry) {
-    const nextStatus: WatchlistStatus = entry.status === "active" ? "suspended" : "active";
+    const nextStatus: WatchlistStatus = entry.status === "active" ? "inactive" : "active";
     try {
       const updated = await intelligenceApi.updateWatchlistEntry(entry.id, { status: nextStatus });
       setEntries((current) => current.map((item) => (item.id === entry.id ? updated : item)));
@@ -498,11 +496,9 @@ function StatusBadge({ status }: { status: WatchlistStatus }) {
   const tone =
     status === "active"
       ? "bg-emerald-100 text-emerald-700"
-      : status === "suspended"
+      : status === "inactive"
         ? "bg-amber-100 text-amber-700"
-        : status === "expired"
-          ? "bg-slate-200 text-slate-700"
-          : "bg-red-100 text-red-700";
+        : "bg-slate-200 text-slate-700";
 
   return <span className={`rounded-full px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${tone}`}>{humanize(status)}</span>;
 }

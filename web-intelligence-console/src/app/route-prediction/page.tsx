@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import MapBase from "../components/map/MapBase";
-import { TrendingUp, Calendar, Clock, MapPin, Search } from "lucide-react";
+import { TrendingUp, Calendar, Clock, MapPin, Search, AlertCircle } from "lucide-react";
+import { routesApi } from "../services/api";
 
 interface RoutePrediction {
   plate_number: string;
@@ -19,28 +20,21 @@ export default function RoutePredictionPage() {
   const [loading, setLoading] = useState(false);
   const [plateNumber, setPlateNumber] = useState("");
   const [daysAhead, setDaysAhead] = useState(7);
+  const [error, setError] = useState<string | null>(null);
 
   const handlePredict = async () => {
     if (!plateNumber) return;
     setLoading(true);
-    // Replace with actual API call
-    // const response = await fetch('/api/intelligence/route-prediction', { ... });
-    setTimeout(() => {
-      setPrediction({
-        plate_number: plateNumber,
-        predicted_corridor: [
-          [-51.2177, -30.0346],
-          [-51.2300, -30.0450],
-          [-51.2450, -30.0550],
-        ],
-        confidence: 0.85,
-        predicted_hours: [22, 23, 0, 1, 2],
-        predicted_days: [0, 1, 2, 3, 4, 5, 6],
-        last_pattern_analyzed: new Date().toISOString(),
-        pattern_strength: 0.9,
-      });
+    setError(null);
+    try {
+      const response = await routesApi.predict(plateNumber, daysAhead);
+      setPrediction(response);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao buscar previsão de rota");
+      setPrediction(null);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -87,6 +81,14 @@ export default function RoutePredictionPage() {
             />
           </div>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="bg-red-900/50 border border-red-700 rounded-lg p-3 flex items-center gap-2 text-red-200 text-sm mb-4">
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
 
         {/* Prediction Details */}
         {prediction && (

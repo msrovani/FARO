@@ -3,7 +3,7 @@ F.A.R.O. API Routes - Route aggregation
 """
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import alert, audit, auth, boletim_atendimento, documentation, hotspots, intelligence, mobile, route_prediction, suspicious_routes, websocket, devices
+from app.api.v1.endpoints import alerts, alert_history, audit, auth, assets, boletim_atendimento, documentation, hotspots, intelligence, mobile, route_prediction, suspicious_routes, websocket, devices
 
 api_router = APIRouter()
 
@@ -34,10 +34,18 @@ api_router.include_router(
     tags=["Devices Management"],
 )
 
+# Audit routes
 api_router.include_router(
     audit.router,
     prefix="/audit",
     tags=["Audit"],
+)
+
+# Alert History routes (Prometheus)
+api_router.include_router(
+    alert_history.router,
+    prefix="/monitoring",
+    tags=["Monitoring - Alert History"],
 )
 
 api_router.include_router(
@@ -59,7 +67,7 @@ api_router.include_router(
 )
 
 api_router.include_router(
-    alert.router,
+    alerts.router,
     prefix="/intelligence",
     tags=["Alerts"],
 )
@@ -83,4 +91,11 @@ api_router.include_router(
     documentation.router,
     prefix="/documentation",
     tags=["Documentation"],
+)
+
+# Assets routes (serve images/files from storage)
+api_router.include_router(
+    assets.router,
+    prefix="/v1",
+    tags=["Assets"],
 )

@@ -1,5 +1,5 @@
 // F.A.R.O. Web Intelligence Console - API Service
-import axios, { AxiosError, AxiosInstance, AxiosResponse } from 'axios';
+import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import {
   AnalystConclusion,
   AnalystDecision,
@@ -42,7 +42,135 @@ import {
   GeolocationAuditFilter,
 } from '@/app/types';
 
+// ============================================================================
+// HTTP Cache (Simple in-memory cache)
+// ============================================================================
+interface CacheEntry {
+  data: unknown;
+  timestamp: number;
+}
+
+const httpCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes default
+const MAX_CACHE_SIZE = 100;
+
+function getCachedData(key: string): unknown | null {
+  const entry = httpCache.get(key);
+  if (!entry) return null;
+  
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    httpCache.delete(key);
+    return null;
+  }
+  
+  return entry.data;
+}
+
+function setCachedData(key: string, data: unknown): void {
+  // Evict oldest if cache is full
+  if (httpCache.size >= MAX_CACHE_SIZE) {
+    const oldestKey = httpCache.keys().next().value;
+    httpCache.delete(oldestKey);
+  }
+  httpCache.set(key, { data, timestamp: Date.now() });
+}
+
+function generateCacheKey(config: InternalAxiosRequestConfig): string {
+  return `${config.method}:${config.url}:${JSON.stringify(config.params || {})}`;
+}
+
+// ============================================================================
+// Circuit Breaker State
+// ============================================================================
+type CircuitState = 'closed' | 'open' | 'half_open';
+
+interface CircuitBreakerState {
+  state: CircuitState;
+  failures: number;
+  lastFailureTime: number;
+  successes: number;
+}
+
+const circuitBreakers: Map<string, CircuitBreakerState> = new Map();
+
+// Config
+const CIRCUIT_FAILURE_THRESHOLD = 5;
+const CIRCUIT_SUCCESS_THRESHOLD = 2;
+const CIRCUIT_TIMEOUT_MS = 60000;
+
+function getCircuitBreaker(name: string): CircuitBreakerState {
+  if (!circuitBreakers.has(name)) {
+    circuitBreakers.set(name, { state: 'closed', failures: 0, lastFailureTime: 0, successes: 0 });
+  }
+  return circuitBreakers.get(name)!;
+}
+
+function recordCircuitSuccess(name: string): void {
+  const cb = getCircuitBreaker(name);
+  cb.failures = 0;
+  cb.successes++;
+  if (cb.state === 'half_open' && cb.successes >= CIRCUIT_SUCCESS_THRESHOLD) {
+    cb.state = 'closed';
+    cb.successes = 0;
+  }
+}
+
+function recordCircuitFailure(name: string): void {
+  const cb = getCircuitBreaker(name);
+  cb.failures++;
+  cb.lastFailureTime = Date.now();
+  cb.successes = 0;
+  if (cb.state === 'closed' && cb.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+    cb.state = 'open';
+  } else if (cb.state === 'half_open') {
+    cb.state = 'open';
+  }
+}
+
+function canExecute(name: string): boolean {
+  const cb = getCircuitBreaker(name);
+  if (cb.state === 'closed') return true;
+  if (cb.state === 'open') {
+    if (Date.now() - cb.lastFailureTime > CIRCUIT_TIMEOUT_MS) {
+      cb.state = 'half_open';
+      cb.successes = 0;
+      return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+// ============================================================================
+// Retry Interceptor (EXPERIMENTAL - Auto-retry on failure)
+// ============================================================================
+const RETRY_STATUS_CODES = [408, 429, 500, 502, 503, 504];
+const RETRY_MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 1000;
+
+function shouldRetryResponse(status: number): boolean {
+  return RETRY_STATUS_CODES.includes(status);
+}
+
+// ============================================================================
+// Offline Detection
+// ============================================================================
+let isOnlineStatus = true;
+let lastOnlineCheck = 0;
+
+function checkOnline(): boolean {
+  // Debounce check to avoid excessive calls
+  const now = Date.now();
+  if (now - lastOnlineCheck < 1000) return isOnlineStatus;
+  
+  lastOnlineCheck = now;
+  isOnlineStatus = typeof navigator !== 'undefined' ? navigator.onLine : true;
+  return isOnlineStatus;
+}
+
+// ============================================================================
 // Create axios instance
+// ============================================================================
 const api: AxiosInstance = axios.create({
   baseURL: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1`,
   timeout: 30000,
@@ -51,31 +179,177 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-// Request interceptor for auth token
+// Request interceptor: Auth + Cache
 api.interceptors.request.use(
   (config) => {
+    // Auth token
     const token = localStorage.getItem('access_token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    
+    // Check for cached response (GET only)
+    if (config.method === 'get') {
+      const cacheKey = generateCacheKey(config);
+      const cached = getCachedData(cacheKey);
+      if (cached) {
+        // Return cached response wrapped in promise
+        return Promise.resolve(cached as AxiosResponse).then(response => {
+          // Mark as from cache
+          (response as AxiosResponse & { fromCache: boolean }).fromCache = true;
+          return config;
+        });
+      }
+    }
+    
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for error handling
+// Response interceptor: Cache + Circuit + Errors
 api.interceptors.response.use(
-  (response: AxiosResponse) => response,
+  (response: AxiosResponse & { config?: InternalAxiosRequestConfig }) => {
+    recordCircuitSuccess('network');
+    
+    // Cache GET responses
+    if (response.config?.method === 'get') {
+      const cacheKey = generateCacheKey(response.config);
+      setCachedData(cacheKey, response);
+    }
+    
+    return response;
+  },
   (error: AxiosError<ApiError>) => {
-    if (error.response?.status === 401) {
-      // Token expired or invalid
+    console.error('[API Error Interceptor Called]');
+
+    // Safety check: ensure error is an object
+    if (!error || typeof error !== 'object') {
+      console.error('[API Error] Invalid error object');
+      return Promise.reject(error);
+    }
+
+    const status = error.response?.status;
+    const url = error.config?.url;
+    const code = error.code;
+    const message = error.message;
+
+    console.error('[API Error] URL:', url, 'Status:', status, 'Code:', code, 'Message:', message);
+
+    recordCircuitFailure('network');
+
+    if (status === 401) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       window.location.href = '/login';
     }
+
+    if (error.response) {
+      const apiError = error.response.data as ApiError;
+      apiError.connection_error = getConnectionErrorMessage(error);
+    } else {
+      (error.response as unknown as ApiError) = {
+        detail: getConnectionErrorMessage(error),
+      } as ApiError;
+    }
+
     return Promise.reject(error);
   }
 );
+
+// ============================================================================
+// Connection Error Messages
+// ============================================================================
+function getConnectionErrorMessage(error: unknown): string {
+  const axiosError = error as AxiosError;
+  if (!axiosError.response) {
+    const code = axiosError.code;
+    if (code === 'ECONNABORTED' || code === 'ETIMEDOUT') {
+      return 'Tempo limite excedido. Verifique sua conexão.';
+    }
+    if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'ENETUNREACH') {
+      if (!checkOnline()) {
+        return 'Você está offline. Conecte-se à internet para continuar.';
+      }
+      return 'Servidor indisponível. Tente novamente mais tarde.';
+    }
+    return 'Erro de conexão. Verifique sua internet.';
+  }
+  const status = axiosError.response.status;
+  if (status === 500) return 'Erro interno do servidor.';
+  if (status === 502 || status === 503) return 'Serviço temporariamente indisponível.';
+  if (status === 504) return 'Tempo limite excedido.';
+  return axiosError.response.data?.detail || 'Erro desconhecido.';
+}
+
+// ============================================================================
+// Export utilities for external use
+// ============================================================================
+export { 
+  // Utilities
+  checkOnline as isOnline, 
+  canExecute, 
+  getCircuitBreaker, 
+  getConnectionErrorMessage,
+  // Cache
+  httpCache,
+  getCachedData,
+  setCachedData,
+};
+
+// ============================================================================
+// Asset URL Helper
+// ============================================================================
+/**
+ * Generate asset URL from bucket and key
+ * @param bucket - Storage bucket name (e.g., "faro-assets" or "local")
+ * @param key - File key/path (e.g., "observations/123/image/abc.jpg")
+ * @returns Full URL to access the asset
+ */
+export function getAssetUrl(bucket: string, key: string): string {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  return `${baseUrl}/api/v1/assets/${bucket}/${key}`;
+}
+
+/**
+ * Generate plate image URL from PlateRead
+ * @param plateRead - PlateRead object with bucket and key
+ * @returns Full URL to the plate image or undefined if no image
+ */
+export function getPlateImageUrl(plateRead: { image_url?: string }): string | undefined {
+  if (!plateRead.image_url) return undefined;
+  
+  // If image_url is already a full URL, return as-is
+  if (plateRead.image_url.startsWith('http://') || plateRead.image_url.startsWith('https://')) {
+    return plateRead.image_url;
+  }
+  
+  // Otherwise, assume it's a key and construct URL
+  // Default to faro-assets bucket if not specified
+  const bucket = 'faro-assets';
+  return getAssetUrl(bucket, plateRead.image_url);
+}
+
+/**
+ * Generate evidence URLs from SuspicionReport
+ * @param report - SuspicionReport object with image_url and audio_url
+ * @returns Array of evidence items with URLs and types
+ */
+export function getEvidenceUrls(report: { image_url?: string; audio_url?: string }): Array<{ url: string; type: 'image' | 'audio' | 'video'; filename?: string }> {
+  const items: Array<{ url: string; type: 'image' | 'audio' | 'video'; filename?: string }> = [];
+  
+  if (report.image_url) {
+    const url = report.image_url.startsWith('http') ? report.image_url : getAssetUrl('faro-assets', report.image_url);
+    items.push({ url, type: 'image', filename: 'evidence.jpg' });
+  }
+  
+  if (report.audio_url) {
+    const url = report.audio_url.startsWith('http') ? report.audio_url : getAssetUrl('faro-assets', report.audio_url);
+    items.push({ url, type: 'audio', filename: 'evidence.mp3' });
+  }
+  
+  return items;
+}
 
 // Auth API
 export const authApi = {
@@ -286,6 +560,11 @@ export const intelligenceApi = {
     return response.data;
   },
 
+  deleteWatchlistEntry: async (id: string): Promise<{ message: string }> => {
+    const response = await api.delete(`/intelligence/watchlists/${id}`);
+    return response.data;
+  },
+
   getObservationDetail: async (id: string): Promise<ObservationDetail> => {
     const response = await api.get(`/intelligence/observations/${id}`);
     return response.data;
@@ -339,6 +618,32 @@ export const intelligenceApi = {
     return response.data;
   },
 
+  deleteCase: async (id: string): Promise<{ message: string }> => {
+    const response = await api.delete(`/intelligence/cases/${id}`);
+    return response.data;
+  },
+
+  listCaseLinks: async (caseId: string, linkType?: string): Promise<any[]> => {
+    const response = await api.get(`/intelligence/cases/${caseId}/links`, {
+      params: linkType ? { link_type: linkType } : undefined,
+    });
+    return response.data;
+  },
+
+  addCaseLink: async (caseId: string, data: {
+    link_type: string;
+    linked_entity_id: string;
+    linked_label?: string;
+  }): Promise<any> => {
+    const response = await api.post(`/intelligence/cases/${caseId}/links`, data);
+    return response.data;
+  },
+
+  removeCaseLink: async (caseId: string, linkId: string): Promise<{ message: string }> => {
+    const response = await api.delete(`/intelligence/cases/${caseId}/links/${linkId}`);
+    return response.data;
+  },
+
   listAuditLogs: async (params?: {
     action?: string;
     resource_type?: string;
@@ -374,8 +679,18 @@ export const alertsApi = {
     end_date?: string;
     plate_number?: string;
   }, pagination?: PaginationParams): Promise<PaginatedResponse<Alert>> => {
-    const response = await api.get('/alerts', { params: { ...filters, ...pagination } });
-    return response.data;
+    // Convert getAlerts to use getAggregatedAlerts
+    const response = await api.post('/intelligence/alerts/aggregated', {
+      limit: pagination?.limit || 100,
+      alert_type: filters?.alert_type,
+      severity: filters?.severity,
+    });
+    return {
+      items: response.data.alerts,
+      total_count: response.data.total_alerts,
+      page: pagination?.page || 1,
+      page_size: pagination?.limit || 100,
+    };
   },
 
   acknowledgeAlert: async (id: string) => {
@@ -399,6 +714,114 @@ export const alertsApi = {
 
   getAlertStats: async () => {
     const response = await api.get('/alerts/stats');
+    return response.data;
+  },
+
+  getAggregatedAlerts: async (filters?: {
+    alert_type?: string;
+    severity?: string;
+    limit?: number;
+  }): Promise<{
+    total_alerts: number;
+    alerts: Array<{
+      alert_type: string;
+      plate_number: string;
+      severity: string;
+      confidence: number;
+      details: Record<string, unknown>;
+      triggered_at: string;
+      requires_review: boolean;
+    }>;
+    summary: Record<string, unknown>;
+  }> => {
+    const response = await api.post('/intelligence/alerts/aggregated', {
+      limit: 100,
+      ...filters,
+    });
+    return response.data;
+  },
+};
+
+// Hotspots API
+export const hotspotsApi = {
+  analyze: async (payload?: {
+    start_date?: string;
+    end_date?: string;
+    cluster_radius_meters?: number;
+    min_points_per_cluster?: number;
+  }): Promise<{
+    hotspots: Array<{
+      latitude: number;
+      longitude: number;
+      observation_count: number;
+      suspicion_count: number;
+      unique_plates: number;
+      radius_meters: number;
+      intensity_score: number;
+    }>;
+    total_observations: number;
+    total_suspicions: number;
+    analysis_period_days: number;
+    cluster_radius_meters: number;
+    min_points_per_cluster: number;
+  }> => {
+    const response = await api.post('/intelligence/hotspots/analyze', {
+      cluster_radius_meters: 500,
+      min_points_per_cluster: 5,
+      ...payload,
+    });
+    return response.data;
+  },
+};
+
+// Suspicious Routes API
+export const suspiciousRoutesApi = {
+  list: async (filters?: {
+    crime_type?: string;
+    risk_level?: string;
+    approval_status?: string;
+    is_active?: boolean;
+    page?: number;
+    page_size?: number;
+  }): Promise<{
+    routes: Array<{
+      id: string;
+      name: string;
+      crime_type: string;
+      risk_level: string;
+      route_points: Array<{ latitude: number; longitude: number }>;
+      direction: string;
+      is_active: boolean;
+      approval_status: string;
+      justification?: string;
+    }>;
+    total_count: number;
+    page: number;
+    page_size: number;
+  }> => {
+    const response = await api.get('/intelligence/suspicious-routes', { params: filters });
+    return response.data;
+  },
+
+  create: async (payload: {
+    name: string;
+    crime_type: string;
+    direction: string;
+    risk_level: string;
+    route_points: Array<{ latitude: number; longitude: number }>;
+    justification?: string;
+  }) => {
+    const response = await api.post('/intelligence/suspicious-routes', payload);
+    return response.data;
+  },
+
+  approve: async (routeId: string, payload: { approval_status: 'approved' | 'rejected'; justification?: string }) => {
+    const response = await api.post(`/intelligence/suspicious-routes/${routeId}/approve`, payload);
+    return response.data;
+  },
+
+  remove: async (routeId: string) => {
+    const response = await api.delete(`/intelligence/suspicious-routes/${routeId}`);
     return response.data;
   },
 };
@@ -437,6 +860,104 @@ export const routesApi = {
   }> => {
     const response = await api.get(`/intelligence/routes/${plateNumber}/timeline`);
     return response.data;
+  },
+
+  // Route Prediction
+  predict: async (plateNumber: string, daysAhead?: number): Promise<{
+    plate_number: string;
+    predicted_corridor: Array<[number, number]>;
+    confidence: number;
+    predicted_hours: number[];
+    predicted_days: number[];
+    last_pattern_analyzed: string;
+    pattern_strength: number;
+  }> => {
+    const response = await api.post('/intelligence/route-prediction', {
+      plate_number: plateNumber,
+      min_observations: 5,
+      ...(daysAhead ? { days_ahead: daysAhead } : {}),
+    });
+    return response.data;
+  },
+
+  getDrift: async (plateNumber: string): Promise<{
+    plate_number: string;
+    drift_percent: number;
+    threshold_percent: number;
+    out_of_corridor_count: number;
+    total_recent_observations: number;
+    alert_type: string;
+    pattern_analyzed_at: string;
+  }> => {
+    const response = await api.post('/intelligence/route-prediction/pattern-drift', null, {
+      params: { plate_number: plateNumber },
+    });
+    return response.data;
+  },
+
+  getRecurring: async (): Promise<Array<{
+    plate_number: string;
+    recurrence_score: number;
+    pattern_strength: number;
+    primary_corridor: Array<[number, number]>;
+    predominant_direction: string;
+    observation_count: number;
+    analyzed_at: string;
+    alert_type: string;
+  }>> => {
+    const response = await api.get('/intelligence/route-prediction/recurring-alerts');
+    return response.data;
+  },
+
+  // Convoys & Roaming
+  getConvoys: async (plateNumber?: string): Promise<Array<{
+    id: string;
+    algorithm_type: string;
+    observation_id: string;
+    decision: string;
+    confidence: number;
+    severity: string;
+    explanation: string;
+    false_positive_risk: number;
+    metrics: {
+      related_plate: string;
+      cooccurrence_count: number;
+    };
+    created_at: string;
+  }>> => {
+    const response = await api.get('/intelligence/convoys', {
+      params: plateNumber ? { plate_number: plateNumber } : undefined,
+    });
+    // Converter false_positive_risk de string para number
+    return response.data.map((item: any) => ({
+      ...item,
+      false_positive_risk: parseFloat(item.false_positive_risk),
+    }));
+  },
+
+  getRoaming: async (plateNumber?: string): Promise<Array<{
+    id: string;
+    algorithm_type: string;
+    observation_id: string;
+    decision: string;
+    confidence: number;
+    severity: string;
+    explanation: string;
+    false_positive_risk: number;
+    metrics: {
+      area_label: string;
+      recurrence_count: number;
+    };
+    created_at: string;
+  }>> => {
+    const response = await api.get('/intelligence/roaming', {
+      params: plateNumber ? { plate_number: plateNumber } : undefined,
+    });
+    // Converter false_positive_risk de string para number
+    return response.data.map((item: any) => ({
+      ...item,
+      false_positive_risk: parseFloat(item.false_positive_risk),
+    }));
   },
 };
 
@@ -504,6 +1025,16 @@ export const userApi = {
 
   deleteUser: async (userId: string) => {
     await api.delete(`/auth/users/${userId}`);
+  },
+
+  toggleUserActive: async (userId: string): Promise<User> => {
+    const response = await api.patch(`/auth/users/${userId}/toggle-active`);
+    return response.data;
+  },
+
+  verifyUser: async (userId: string): Promise<User> => {
+    const response = await api.patch(`/auth/users/${userId}/verify`);
+    return response.data;
   },
 };
 

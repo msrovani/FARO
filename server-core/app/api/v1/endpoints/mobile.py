@@ -1,9 +1,12 @@
 """
 F.A.R.O. Mobile API - fluxo do agente de campo.
 """
+
 import asyncio
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -16,6 +19,7 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.core.observability import record_feedback_pending, record_sync_batch
 from app.db.base import (
     AnalystFeedbackEvent,
+    AgentLocationLog,
     FeedbackEvent,
     IntelligenceReview,
     PlateRead,
@@ -39,13 +43,19 @@ from app.schemas.observation import (
     ObservationHistoryResponse,
     OcrValidationRequest,
     OcrValidationResponse,
+    OcrBatchValidationRequest,
+    OcrBatchValidationResponse,
     PlateSuspicionCheckResponse,
     VehicleObservationCreate,
     VehicleObservationResponse,
 )
 from app.schemas.suspicion import SuspicionReportCreate, SuspicionReportResponse
 from app.schemas.sync import SyncBatchRequest, SyncBatchResponse, SyncResult
-from app.schemas.user import AgentLocationBatchSync, AgentLocationUpdate
+from app.schemas.user import (
+    AgentLocationBatchSync,
+    AgentLocationUpdate,
+    ShiftRenewalRequest,
+)
 from app.services.observation_service import (
     fetch_history_flags,
     get_or_register_device,
@@ -60,8 +70,9 @@ from app.services.analytics_service import evaluate_observation_algorithms
 from app.services.audit_service import log_audit_event
 from app.services.event_bus import event_bus
 from app.services.feedback_service import fetch_pending_feedback_for_user
-from app.services.ocr_service import get_ocr_service
+from app.services.ocr_service import get_async_ocr_service
 from app.services.storage_service import (
+    UploadedAsset,
     complete_progressive_upload,
     upload_observation_asset_bytes,
     upload_observation_asset_progressive,
@@ -93,104 +104,120 @@ async def create_observation(
     current_user: User = Depends(require_field_agent),
     db: AsyncSession = Depends(get_db),
 ):
-    if payload.client_id:
-        existing_result = await db.execute(
-            select(VehicleObservation).where(VehicleObservation.client_id == payload.client_id)
-        )
-        existing = existing_result.scalar_one_or_none()
-        if existing is not None:
-            return await serialize_observation(db, existing, current_user)
-
-    device = await get_or_register_device(
-        db,
-        device_identifier=payload.device_id,
-        current_user=current_user,
-        app_version=payload.app_version,
-    )
-
-    observation = VehicleObservation(
-        client_id=payload.client_id,
-        agent_id=current_user.id,
-        agency_id=current_user.agency_id,
-        device_id=device.id,
-        plate_number=payload.plate_number,
-        plate_state=payload.plate_state,
-        plate_country=payload.plate_country,
-        observed_at_local=payload.observed_at_local,
-        observed_at_server=datetime.utcnow(),
-        location=location_geometry(payload.location),
-        location_accuracy=payload.location.accuracy,
-        heading=payload.heading,
-        speed=payload.speed,
-        vehicle_color=payload.vehicle_color,
-        vehicle_type=payload.vehicle_type,
-        vehicle_model=payload.vehicle_model,
-        vehicle_year=payload.vehicle_year,
-        connectivity_type=payload.connectivity_type,
-        sync_status=SyncStatus.COMPLETED,
-        synced_at=datetime.utcnow(),
-        metadata_snapshot={
-            "origin": "mobile",
-            "device_id": payload.device_id,
-            "app_version": payload.app_version,
-            "connectivity_type": payload.connectivity_type or "unknown",
-        },
-    )
-    db.add(observation)
-    await db.flush()
-
-    if payload.plate_read is not None:
-        db.add(
-            PlateRead(
-                observation_id=observation.id,
-                ocr_raw_text=payload.plate_read.ocr_raw_text,
-                ocr_confidence=payload.plate_read.ocr_confidence,
-                ocr_engine=payload.plate_read.ocr_engine,
-                image_width=payload.plate_read.image_width,
-                image_height=payload.plate_read.image_height,
-                processing_time_ms=payload.plate_read.processing_time_ms,
+    try:
+        if payload.client_id:
+            existing_result = await db.execute(
+                select(VehicleObservation).where(
+                    VehicleObservation.client_id == payload.client_id
+                )
             )
+            existing = existing_result.scalar_one_or_none()
+            if existing is not None:
+                return await serialize_observation(db, existing, current_user)
+
+        device = await get_or_register_device(
+            db,
+            device_identifier=payload.device_id,
+            current_user=current_user,
+            app_version=payload.app_version,
         )
 
-    await db.flush()
-    await evaluate_observation_algorithms(db, observation)
-    operational_context = await build_operational_context_for_observation(
-        db,
-        observation=observation,
-    )
-    observation.metadata_snapshot = {
-        **(observation.metadata_snapshot or {}),
-        "state_registry_status": operational_context.get("state_registry"),
-        "prior_suspicion_context": operational_context.get("prior_suspicion"),
-    }
-    await event_bus.publish(
-        "observation_created",
-        {
-            "payload_version": "v1",
-            "observation_id": str(observation.id),
-            "agent_id": str(current_user.id),
-            "plate_number": observation.plate_number,
-            "source": "mobile_online",
-        },
-    )
-    await log_audit_event(
-        db,
-        actor=current_user,
-        action="observation_created",
-        resource_type="vehicle_observation",
-        resource_id=observation.id,
-        details={
-            "plate_number": observation.plate_number,
-            "client_id": observation.client_id,
-            "sync_status": observation.sync_status.value,
-        },
-    )
-    return await serialize_observation(
-        db,
-        observation,
-        current_user,
-        operational_context=operational_context,
-    )
+        observation = VehicleObservation(
+            client_id=payload.client_id,
+            agent_id=current_user.id,
+            agency_id=current_user.agency_id,
+            device_id=device.id,
+            plate_number=payload.plate_number,
+            plate_state=payload.plate_state,
+            plate_country=payload.plate_country,
+            observed_at_local=payload.observed_at_local,
+            observed_at_server=datetime.utcnow(),
+            location=location_geometry(payload.location),
+            location_accuracy=payload.location.accuracy,
+            heading=payload.heading,
+            speed=payload.speed,
+            vehicle_color=payload.vehicle_color,
+            vehicle_type=payload.vehicle_type,
+            vehicle_model=payload.vehicle_model,
+            vehicle_year=payload.vehicle_year,
+            connectivity_type=payload.connectivity_type,
+            sync_status=SyncStatus.COMPLETED,
+            synced_at=datetime.utcnow(),
+            metadata_snapshot={
+                "origin": "mobile",
+                "device_id": payload.device_id,
+                "app_version": payload.app_version,
+                "connectivity_type": payload.connectivity_type or "unknown",
+            },
+        )
+        db.add(observation)
+        await db.flush()
+
+        if payload.plate_read is not None:
+            db.add(
+                PlateRead(
+                    observation_id=observation.id,
+                    ocr_raw_text=payload.plate_read.ocr_raw_text,
+                    ocr_confidence=payload.plate_read.ocr_confidence,
+                    ocr_engine=payload.plate_read.ocr_engine,
+                    image_width=payload.plate_read.image_width,
+                    image_height=payload.plate_read.image_height,
+                    processing_time_ms=payload.plate_read.processing_time_ms,
+                )
+            )
+
+        await db.flush()
+        await db.commit()
+        # Refresh observation to ensure all attributes are loaded for async operations
+        await db.refresh(observation)
+        await evaluate_observation_algorithms(db, observation)
+        operational_context = await build_operational_context_for_observation(
+            db,
+            observation=observation,
+        )
+        observation.metadata_snapshot = {
+            **(observation.metadata_snapshot or {}),
+            "state_registry_status": operational_context.get("state_registry"),
+            "prior_suspicion_context": operational_context.get("prior_suspicion"),
+        }
+        await event_bus.publish(
+            "observation_created",
+            {
+                "payload_version": "v1",
+                "observation_id": str(observation.id),
+                "agent_id": str(current_user.id),
+                "plate_number": observation.plate_number,
+                "source": "mobile_online",
+            },
+        )
+        await log_audit_event(
+            db,
+            actor=current_user,
+            action="observation_created",
+            resource_type="vehicle_observation",
+            resource_id=observation.id,
+            details={
+                "plate_number": observation.plate_number,
+                "client_id": observation.client_id,
+                "sync_status": observation.sync_status.value,
+            },
+        )
+        # Refresh observation again before serialization to ensure all attributes are loaded
+        await db.refresh(observation)
+        return await serialize_observation(
+            db,
+            observation,
+            current_user,
+            operational_context=operational_context,
+        )
+    except Exception as e:
+        import traceback
+        print(f"Error creating observation: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating observation: {str(e)}"
+        )
 
 
 @router.get("/history", response_model=ObservationHistoryResponse)
@@ -200,7 +227,9 @@ async def get_observation_history(
     db: AsyncSession = Depends(get_db),
 ):
     total_result = await db.execute(
-        select(func.count(VehicleObservation.id)).where(VehicleObservation.agent_id == current_user.id)
+        select(func.count(VehicleObservation.id)).where(
+            VehicleObservation.agent_id == current_user.id
+        )
     )
     pending_result = await db.execute(
         select(func.count(VehicleObservation.id)).where(
@@ -248,32 +277,34 @@ async def get_observation_history(
     )
 
 
-@router.get("/plates/{plate_number}/check-suspicion", response_model=PlateSuspicionCheckResponse)
+@router.get(
+    "/plates/{plate_number}/check-suspicion", response_model=PlateSuspicionCheckResponse
+)
 async def check_plate_suspicion(
     plate_number: str,
     current_user: User = Depends(require_field_agent),
     db: AsyncSession = Depends(get_db),
 ):
     """Check if a plate has suspicion indicators (for post-OCR alert in mobile app).
-    
+
     TODO[FUTURO - OUTRO DEV]: Integrar consulta a bases de dados oficiais
     -----------------------------------------------------------------------------
     Este endpoint verifica suspeitas internas (watchlist, suspeitas anteriores).
     Deve ser expandido para consultar:
-    
+
     1. BASE ESTADUAL (DETRAN-MS): Roubo/furto, débitos, restrições
        - Adapter: app/integrations/state_registry_adapter.py
        - Implementar: query_state_vehicle_registry() com conexão real
        - Endpoint externo: A definir pela BMRS
-       
+
     2. POLÍCIA FEDERAL: Veículos com alertas nacionais
        - Criar novo adapter: federal_police_adapter.py
        - Requer credenciais e certificação digital ICP-Brasil
-       
+
     3. BASE NACIONAL DE VEÍCULOS RENAVAM: Dados cadastrais
        - Criar adapter: renavam_adapter.py
        - Dados: proprietário, situação, licenciamento
-       
+
     RETORNO AO AGENTE: Incluir os dados oficiais na resposta quando disponíveis.
     Ver campos opcionais no schema PlateSuspicionCheckResponse para expansão.
     -----------------------------------------------------------------------------
@@ -284,23 +315,23 @@ async def check_plate_suspicion(
     )
     from app.db.base import WatchlistEntry, WatchlistStatus
     from sqlalchemy import func
-    
+
     # Normalize plate
     normalized_plate = plate_number.upper().replace(" ", "").replace("-", "").strip()
     agency_id = current_user.agency_id
-    
+
     # =========================================================================
     # TODO[FUTURO]: CHAMADA À BASE ESTADUAL (DETRAN/POLÍCIA)
     # =========================================================================
     # from app.integrations.state_registry_adapter import query_state_vehicle_registry
     # official_data = await query_state_vehicle_registry(plate_number=normalized_plate)
-    # 
+    #
     # Usar dados oficiais para enriquecer a resposta:
     # - Marcar suspeita se veículo consta como roubado/furtado
     # - Incluir dados do proprietário (se autorizado)
     # - Alertar sobre débitos/restrições administrativas
     # =========================================================================
-    
+
     # Check watchlist, prior suspicion, and count previous observations in parallel
     # REGRA: Agente de campo ve watchlist de TODAS as agencias (visibilidade ampla)
     # REGRA: Agente de campo ve suspeitas de TODAS as agencias
@@ -325,20 +356,22 @@ async def check_plate_suspicion(
             plate_number=normalized_plate,
             agency_id=None,  # Sem filtro de agencia
             days=30,
-        )
+        ),
     )
     watchlist_entry = watchlist_result.scalar_one_or_none()
-    
+
     # Determine if suspect
-    is_suspect = watchlist_entry is not None or (prior_context and prior_context.get("has_prior_suspicion"))
-    
+    is_suspect = watchlist_entry is not None or (
+        prior_context and prior_context.get("has_prior_suspicion")
+    )
+
     if not is_suspect:
         return PlateSuspicionCheckResponse(
             plate_number=normalized_plate,
             is_suspect=False,
             previous_observations_count=previous_count,
         )
-    
+
     # Build alert based on priority
     alert_level = "warning"
     alert_title = "Veiculo com Indicativos"
@@ -347,16 +380,18 @@ async def check_plate_suspicion(
     watchlist_category = None
     requires_approach = False
     guidance = "Proceder com atencao. Registrar observacao estruturada se comportamento suspeito confirmado."
-    
+
     if watchlist_entry:
         alert_level = "critical" if watchlist_entry.priority >= 4 else "warning"
-        alert_title = f"WATCHLIST: {watchlist_entry.category.value.replace('_', ' ').upper()}"
+        alert_title = (
+            f"WATCHLIST: {watchlist_entry.category.value.replace('_', ' ').upper()}"
+        )
         watchlist_category = watchlist_entry.category.value
         suspicion_reason = watchlist_entry.notes
         requires_approach = watchlist_entry.requires_approach
         if watchlist_entry.approach_guidance:
             guidance = watchlist_entry.approach_guidance
-    
+
     if prior_context and prior_context.get("has_prior_suspicion"):
         suspicion_reason = prior_context.get("first_suspicion_reason")
         suspicion_level = prior_context.get("first_suspicion_level")
@@ -364,20 +399,22 @@ async def check_plate_suspicion(
             alert_level = "critical"
             requires_approach = True
         alert_title = "SUSPEITA PREVIA REGISTRADA"
-    
+
     # Build alert message
     alert_parts = [f"Placa {normalized_plate} possui registros previos."]
     if watchlist_category:
-        alert_parts.append(f"Categoria: {watchlist_category.replace('_', ' ').upper()}.")
+        alert_parts.append(
+            f"Categoria: {watchlist_category.replace('_', ' ').upper()}."
+        )
     if suspicion_reason:
         alert_parts.append(f"Motivo: {suspicion_reason}.")
     if previous_count > 0:
         alert_parts.append(f"Passagens recentes: {previous_count}.")
-    
+
     if requires_approach:
         alert_parts.append("ABORDAGEM RECOMENDADA conforme diretrizes.")
         guidance = "Confirmar suspeita e registrar desfecho da abordagem."
-    
+
     return PlateSuspicionCheckResponse(
         plate_number=normalized_plate,
         is_suspect=True,
@@ -387,15 +424,25 @@ async def check_plate_suspicion(
         suspicion_reason=suspicion_reason,
         suspicion_level=suspicion_level,
         previous_observations_count=previous_count,
-        is_monitored=watchlist_entry is not None and watchlist_entry.category.value == "monitored_vehicle",
-        intelligence_interest=prior_context is not None and prior_context.get("has_prior_suspicion"),
+        is_monitored=watchlist_entry is not None
+        and watchlist_entry.category.value == "monitored_vehicle",
+        intelligence_interest=prior_context is not None
+        and prior_context.get("has_prior_suspicion"),
         has_active_watchlist=watchlist_entry is not None,
         watchlist_category=watchlist_category,
         guidance=guidance,
         requires_approach_confirmation=requires_approach,
-        first_suspicion_agent_name=prior_context.get("first_suspicion_agent_name") if prior_context else None,
-        first_suspicion_observation_id=UUID(prior_context["first_suspicion_observation_id"]) if prior_context and prior_context.get("first_suspicion_observation_id") else None,
-        first_suspicion_at=prior_context.get("first_suspicion_at") if prior_context else None,
+        first_suspicion_agent_name=prior_context.get("first_suspicion_agent_name")
+        if prior_context
+        else None,
+        first_suspicion_observation_id=UUID(
+            prior_context["first_suspicion_observation_id"]
+        )
+        if prior_context and prior_context.get("first_suspicion_observation_id")
+        else None,
+        first_suspicion_at=prior_context.get("first_suspicion_at")
+        if prior_context
+        else None,
     )
 
 
@@ -406,60 +453,63 @@ async def validate_ocr(
 ):
     """
     Validate OCR result using backend YOLOv11 + EasyOCR.
-    
+
     Mobile app can send images for reprocessing when online.
     Backend uses more powerful models to validate or improve mobile OCR.
-    
+
     This is optional - mobile can work offline with local OCR.
     Backend validation is for quality assurance and model improvement.
     """
     import base64
     from io import BytesIO
-    
+
     # Decode base64 image
     try:
         image_bytes = base64.b64decode(payload.image_base64)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid base64 image: {str(e)}"
+            detail=f"Invalid base64 image: {str(e)}",
         )
-    
+
     # Get OCR service
-    ocr_service = get_ocr_service()
-    
-    # Process image with backend OCR
-    result = ocr_service.process_image_bytes(
-        image_bytes=image_bytes,
-        confidence_threshold=payload.confidence_threshold
+    ocr_service = get_async_ocr_service()
+
+    # Process image with backend OCR (async)
+    result = await ocr_service.process_image_bytes_async(
+        image_bytes=image_bytes, confidence_threshold=payload.confidence_threshold
     )
-    
+
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="OCR processing failed - no plate detected"
+            detail="OCR processing failed - no plate detected",
         )
-    
+
     # Validate plate format
     is_valid, plate_format = ocr_service.validate_plate_number(result.plate_number)
-    
+
     # Compare with mobile OCR if provided
     mobile_comparison = None
     improved_over_mobile = False
-    
+
     if payload.mobile_ocr_text:
         mobile_comparison = {
             "mobile_text": payload.mobile_ocr_text,
             "mobile_confidence": payload.mobile_ocr_confidence,
             "backend_text": result.plate_number,
             "backend_confidence": result.confidence,
-            "match": payload.mobile_ocr_text.upper().replace(" ", "").replace("-", "") == result.plate_number
+            "match": payload.mobile_ocr_text.upper().replace(" ", "").replace("-", "")
+            == result.plate_number,
         }
-        
+
         # Consider improved if backend confidence is significantly higher
-        if payload.mobile_ocr_confidence and result.confidence > payload.mobile_ocr_confidence + 0.1:
+        if (
+            payload.mobile_ocr_confidence
+            and result.confidence > payload.mobile_ocr_confidence + 0.1
+        ):
             improved_over_mobile = True
-    
+
     return OcrValidationResponse(
         plate_number=result.plate_number,
         confidence=result.confidence,
@@ -468,11 +518,71 @@ async def validate_ocr(
         ocr_engine=result.ocr_engine,
         is_valid_format=is_valid,
         improved_over_mobile=improved_over_mobile,
-        mobile_comparison=mobile_comparison
+        mobile_comparison=mobile_comparison,
     )
 
 
-@router.post("/observations/{observation_id}/suspicion", response_model=SuspicionReportResponse)
+@router.post("/ocr/batch", response_model=OcrBatchValidationResponse)
+async def validate_ocr_batch(
+    payload: OcrBatchValidationRequest,
+    current_user: User = Depends(require_field_agent),
+):
+    """
+    Process multiple images in parallel using backend YOLOv11 + EasyOCR.
+    
+    Batch processing for improved throughput when multiple images need OCR.
+    """
+    import base64
+    from io import BytesIO
+    
+    # Get OCR service
+    ocr_service = get_async_ocr_service()
+    
+    # Decode all images
+    image_bytes_list = []
+    for img_b64 in payload.images_base64:
+        try:
+            image_bytes_list.append(base64.b64decode(img_b64))
+        except Exception as e:
+            logger.error(f"Failed to decode base64 image: {e}")
+    
+    # Process in batch parallel
+    results_data = await ocr_service.process_batch_async(
+        image_bytes_list,
+        confidence_threshold=payload.confidence_threshold
+    )
+    
+    # Build response
+    results = []
+    successful = 0
+    failed = 0
+    
+    for result in results_data:
+        if result:
+            is_valid, plate_format = ocr_service.validate_plate_number(result.plate_number)
+            results.append(OcrValidationResponse(
+                plate_number=result.plate_number,
+                confidence=result.confidence,
+                plate_format=result.plate_format,
+                processing_time_ms=result.processing_time_ms,
+                ocr_engine=result.ocr_engine,
+                is_valid_format=is_valid,
+            ))
+            successful += 1
+        else:
+            failed += 1
+    
+    return OcrBatchValidationResponse(
+        results=results,
+        total_processed=len(image_bytes_list),
+        successful=successful,
+        failed=failed,
+    )
+
+
+@router.post(
+    "/observations/{observation_id}/suspicion", response_model=SuspicionReportResponse
+)
 async def add_suspicion_report(
     observation_id: UUID,
     payload: SuspicionReportCreate,
@@ -495,7 +605,9 @@ async def add_suspicion_report(
         select(SuspicionReport).where(SuspicionReport.observation_id == observation_id)
     )
     if existing_result.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=400, detail="Observacao ja possui suspeicao registrada")
+        raise HTTPException(
+            status_code=400, detail="Observacao ja possui suspeicao registrada"
+        )
 
     report = SuspicionReport(
         observation_id=observation_id,
@@ -536,7 +648,9 @@ async def add_suspicion_report(
     return SuspicionReportResponse.model_validate(report)
 
 
-@router.get("/observations/{observation_id}/feedback", response_model=list[FeedbackForAgent])
+@router.get(
+    "/observations/{observation_id}/feedback", response_model=list[FeedbackForAgent]
+)
 async def get_observation_feedback(
     observation_id: UUID,
     current_user: User = Depends(require_field_agent),
@@ -602,22 +716,24 @@ async def get_observation_feedback(
         for feedback, analyst in structured_result.all()
     ]
 
-    merged_feedback.extend([
-        FeedbackForAgent(
-            feedback_id=feedback.id,
-            observation_id=observation_id,
-            plate_number=observation.plate_number,
-            feedback_type=feedback.feedback_type,
-            title=feedback.title,
-            message=feedback.message,
-            recommended_action=feedback.recommended_action,
-            sent_at=feedback.sent_at,
-            is_read=feedback.read_at is not None,
-            read_at=feedback.read_at,
-            reviewer_name=reviewer.full_name,
-        )
-        for feedback, _, reviewer in legacy_result.all()
-    ])
+    merged_feedback.extend(
+        [
+            FeedbackForAgent(
+                feedback_id=feedback.id,
+                observation_id=observation_id,
+                plate_number=observation.plate_number,
+                feedback_type=feedback.feedback_type,
+                title=feedback.title,
+                message=feedback.message,
+                recommended_action=feedback.recommended_action,
+                sent_at=feedback.sent_at,
+                is_read=feedback.read_at is not None,
+                read_at=feedback.read_at,
+                reviewer_name=reviewer.full_name,
+            )
+            for feedback, _, reviewer in legacy_result.all()
+        ]
+    )
     merged_feedback.sort(key=lambda item: item.sent_at, reverse=True)
     return merged_feedback
 
@@ -649,7 +765,7 @@ async def confirm_vehicle_approach(
         select(SuspicionReport).where(SuspicionReport.observation_id == observation_id)
     )
     report = report_result.scalar_one_or_none()
-    
+
     if report is None:
         report = SuspicionReport(
             observation_id=observation_id,
@@ -666,11 +782,12 @@ async def confirm_vehicle_approach(
     report.nivel_abordagem = payload.suspicion_level_slider
     report.ocorrencia_registrada = payload.has_incident
     report.street_direction = payload.street_direction
-    
+
     if payload.notes:
         report.notes = (
-            f"{report.notes}\n\n[NOTAS DE CAMPO]: {payload.notes}" 
-            if report.notes else f"[NOTAS DE CAMPO]: {payload.notes}"
+            f"{report.notes}\n\n[NOTAS DE CAMPO]: {payload.notes}"
+            if report.notes
+            else f"[NOTAS DE CAMPO]: {payload.notes}"
         )
     await db.flush()
 
@@ -688,7 +805,9 @@ async def confirm_vehicle_approach(
         "suspicion_level_slider": payload.suspicion_level_slider,
         "was_approached": payload.was_approached,
         "has_incident": payload.has_incident,
-        "street_direction": payload.street_direction.value if payload.street_direction else None,
+        "street_direction": payload.street_direction.value
+        if payload.street_direction
+        else None,
     }
 
     if not prior_context or not prior_context.get("has_prior_suspicion"):
@@ -717,7 +836,11 @@ async def confirm_vehicle_approach(
             await generate_ba_from_approach(
                 db,
                 observation_id=observation.id,
-                approach_data=common_details | {"notes": payload.notes, "approached_at_local": payload.approached_at_local},
+                approach_data=common_details
+                | {
+                    "notes": payload.notes,
+                    "approached_at_local": payload.approached_at_local,
+                },
                 current_user=current_user,
             )
         except Exception as ba_err:
@@ -732,97 +855,24 @@ async def confirm_vehicle_approach(
             processed_at=datetime.utcnow(),
         )
 
-
-@router.post("/profile/current-location")
-async def update_current_location(
-    payload: AgentLocationUpdate,
-    current_user: User = Depends(require_field_agent),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Update the agent's current live location for tactical routing.
-    This is high-frequency and only updates the current state.
-    """
-    current_user.last_known_location = location_geometry(payload.location)
-    current_user.last_seen = datetime.utcnow()
-    
-    # Also log to history for audit trail
-    log = AgentLocationLog(
-        agent_id=current_user.id,
-        location=location_geometry(payload.location),
-        recorded_at=payload.recorded_at,
-        connectivity_status=payload.connectivity_status,
-        battery_level=payload.battery_level,
-    )
-    db.add(log)
-    
-    await db.commit()
-    return {"status": "success", "on_duty": current_user.is_on_duty}
-
-
-@router.post("/profile/location-history")
-async def sync_location_history(
-    payload: AgentLocationBatchSync,
-    current_user: User = Depends(require_field_agent),
-    db: AsyncSession = Depends(get_db),
-):
-    return {"message": f"Successfully synced {len(batch.items)} historical locations"}
-
-@router.post("/profile/duty/renew", response_model=schemas.BasicMessageResponse)
-async fun renew_duty_shift(
-    request: schemas.ShiftRenewalRequest,
-    current_user: models.User = Depends(deps.get_current_active_user),
-    db: Session = Depends(deps.get_db)
-):
-    """Extends the current shift duration for the agent."""
-    from datetime import datetime, timedelta
-    
-    expires_at = datetime.utcnow() + timedelta(hours=request.shift_duration_hours)
-    current_user.is_on_duty = True
-    current_user.service_expires_at = expires_at
-    
-    db.add(current_user)
-    
-    # Audit trail
-    from app.models.audit import AuditEvent
-    audit = AuditEvent(
-        user_id=current_user.id,
-        event_type="duty_renewed",
-        description=f"Turno renovado por +{request.shift_duration_hours}h. Expira em: {expires_at.isoformat()}",
-        metadata={"shift_duration_hours": request.shift_duration_hours, "expires_at": expires_at.isoformat()}
-    )
-    db.add(audit)
-    db.commit()
-    
-    return {"message": f"Turno renovado com sucesso por +{request.shift_duration_hours}h"}
- collected while offline (Replay).
-    Ensures the audit trail is complete for DINT/ARI.
-    """
-    for item in payload.items:
-        log = AgentLocationLog(
-            agent_id=current_user.id,
-            location=location_geometry(item.location),
-            recorded_at=item.recorded_at,
-            connectivity_status=item.connectivity_status,
-            battery_level=item.battery_level,
-        )
-        db.add(log)
-    
-    await db.commit()
-    return {"status": "synced", "count": len(payload.items)}
-
-
     original_agent_id = UUID(prior_context["first_suspicion_agent_id"])
     original_agency_id = UUID(prior_context["first_suspicion_agency_id"])
+    original_agent_name = prior_context.get("first_suspicion_agent_name")
     observation_point = to_shape(observation.location)
     location_hint = (
         f"{payload.location.latitude:.6f}, {payload.location.longitude:.6f}"
         if payload.location is not None
         else f"{observation_point.y:.6f}, {observation_point.x:.6f}"
     )
-    confirmation_label = "confirmada" if payload.confirmed_suspicion else "nao confirmada"
-    direction_label = f" (Sentido: {payload.street_direction.value})" if payload.street_direction else ""
-    
+    confirmation_label = (
+        "confirmada" if payload.confirmed_suspicion else "nao confirmada"
+    )
+    direction_label = (
+        f" (Sentido: {payload.street_direction.value})"
+        if payload.street_direction
+        else ""
+    )
+
     message = (
         f"Abordagem registrada para placa {observation.plate_number}. "
         f"Suspeicao {confirmation_label}{direction_label}. "
@@ -839,7 +889,6 @@ async fun renew_duty_shift(
         ).scalar_one_or_none()
         actor_unit_code = actor_unit.code if actor_unit is not None else None
 
-    # Feedback para agencia de origem + cadastrador original
     feedback_event = AnalystFeedbackEvent(
         agency_id=original_agency_id,
         observation_id=UUID(prior_context["first_suspicion_observation_id"]),
@@ -880,12 +929,15 @@ async fun renew_duty_shift(
         },
     )
 
-    # ── Gera Boletim de Atendimento (BA) ──
     try:
         await generate_ba_from_approach(
             db,
             observation_id=observation.id,
-            approach_data=common_details | {"notes": payload.notes, "approached_at_local": payload.approached_at_local},
+            approach_data=common_details
+            | {
+                "notes": payload.notes,
+                "approached_at_local": payload.approached_at_local,
+            },
             current_user=current_user,
         )
     except Exception as ba_err:
@@ -904,149 +956,299 @@ async fun renew_duty_shift(
     )
 
 
+@router.post("/profile/current-location")
+async def update_current_location(
+    payload: AgentLocationUpdate,
+    current_user: User = Depends(require_field_agent),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Update the agent's current live location for tactical routing.
+    This is high-frequency and only updates the current state.
+    """
+    current_user.last_known_location = location_geometry(payload.location)
+    current_user.last_seen = datetime.utcnow()
+
+    # Also log to history for audit trail
+    log = AgentLocationLog(
+        agent_id=current_user.id,
+        location=location_geometry(payload.location),
+        recorded_at=payload.recorded_at,
+        connectivity_status=payload.connectivity_status,
+        battery_level=payload.battery_level,
+    )
+    db.add(log)
+
+    await db.commit()
+    return {
+        "message": "Current location updated",
+        "status": "success",
+        "on_duty": current_user.is_on_duty,
+    }
+
+
+@router.post("/profile/location-history")
+async def sync_location_history(
+    payload: AgentLocationBatchSync,
+    current_user: User = Depends(require_field_agent),
+    db: AsyncSession = Depends(get_db),
+):
+    for item in payload.items:
+        log = AgentLocationLog(
+            agent_id=current_user.id,
+            location=location_geometry(item.location),
+            recorded_at=item.recorded_at,
+            connectivity_status=item.connectivity_status,
+            battery_level=item.battery_level,
+        )
+        db.add(log)
+
+    await db.commit()
+    return {
+        "message": f"Sincronizado com sucesso {len(payload.items)} historical locations",
+        "status": "synced",
+        "count": len(payload.items),
+    }
+
+
+@router.post("/profile/duty/renew")
+async def renew_duty_shift(
+    payload: ShiftRenewalRequest,
+    current_user: User = Depends(require_field_agent),
+    db: AsyncSession = Depends(get_db),
+):
+    expires_at = datetime.utcnow() + timedelta(hours=payload.shift_duration_hours)
+    current_user.is_on_duty = True
+    current_user.service_expires_at = expires_at
+
+    await log_audit_event(
+        db,
+        actor=current_user,
+        action="duty_renewed",
+        resource_type="user_profile",
+        resource_id=current_user.id,
+        details={
+            "shift_duration_hours": payload.shift_duration_hours,
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+    await db.commit()
+
+    return {
+        "message": f"Turno renovado com sucesso por +{payload.shift_duration_hours}h"
+    }
+
+
 @router.post("/sync/batch", response_model=SyncBatchResponse)
 async def sync_batch(
     payload: SyncBatchRequest,
     current_user: User = Depends(require_field_agent),
     db: AsyncSession = Depends(get_db),
 ):
+    # Apply circuit breaker for sync endpoint
+    from app.core.circuit_breaker import get_endpoint_circuit_breaker, CircuitState
+    from app.utils.adaptive_insertion import AdaptiveInsertionStrategy
+    
+    sync_cb = get_endpoint_circuit_breaker("mobile_sync")
+    if not sync_cb.can_execute():
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=503,
+            detail=f"Circuit breaker OPEN - sync temporariamente indisponível. Tente novamente em {sync_cb.config.timeout_seconds}s"
+        )
+    
+    # Initialize adaptive insertion strategy
+    adaptive_strategy = AdaptiveInsertionStrategy(
+        initial_batch_size=50,
+        max_batch_size=200,
+        min_batch_size=10
+    )
+    
     results: list[SyncResult] = []
+    
+    try:
+        # Adapt insertion mode based on current conditions
+        await adaptive_strategy.adapt_mode(db)
+        
+        # Process items in batches based on adaptive strategy
+        items_to_process = payload.items
+        batch_start = 0
+        
+        while batch_start < len(items_to_process):
+            batch_end = min(batch_start + adaptive_strategy.batch_size, len(items_to_process))
+            batch_items = items_to_process[batch_start:batch_end]
+            
+            batch_start_time = time.time()
+            batch_success = 0
+            batch_failed = 0
+            
+            for item in batch_items:
+                try:
+                    if item.entity_type != "observation":
+                        results.append(SyncResult(
+                            entity_local_id=item.entity_local_id,
+                            status=SyncStatus.FAILED,
+                            error=f"Tipo de entidade nao suportado: {item.entity_type}",
+                        ))
+                        batch_failed += 1
+                        continue
 
-    for item in payload.items:
-        try:
-            if item.entity_type != "observation":
-                results.append(
-                    SyncResult(
-                        entity_local_id=item.entity_local_id,
-                        status=SyncStatus.FAILED,
-                        error=f"Tipo de entidade nao suportado: {item.entity_type}",
-                    )
-                )
-                continue
-
-            observation_payload = VehicleObservationCreate(**item.payload)
-            existing_result = await db.execute(
-                select(VehicleObservation).where(
-                    VehicleObservation.client_id == observation_payload.client_id
-                )
-            )
-            existing = existing_result.scalar_one_or_none()
-            if existing is None:
-                device = await get_or_register_device(
-                    db,
-                    device_identifier=observation_payload.device_id,
-                    current_user=current_user,
-                    app_version=payload.app_version,
-                )
-                synced = VehicleObservation(
-                    client_id=observation_payload.client_id,
-                    agent_id=current_user.id,
-                    agency_id=current_user.agency_id,
-                    device_id=device.id,
-                    plate_number=observation_payload.plate_number,
-                    plate_state=observation_payload.plate_state,
-                    plate_country=observation_payload.plate_country,
-                    observed_at_local=observation_payload.observed_at_local,
-                    observed_at_server=datetime.utcnow(),
-                    location=location_geometry(observation_payload.location),
-                    location_accuracy=observation_payload.location.accuracy,
-                    heading=observation_payload.heading,
-                    speed=observation_payload.speed,
-                    vehicle_color=observation_payload.vehicle_color,
-                    vehicle_type=observation_payload.vehicle_type,
-                    vehicle_model=observation_payload.vehicle_model,
-                    vehicle_year=observation_payload.vehicle_year,
-                    connectivity_type=observation_payload.connectivity_type,
-                    sync_status=SyncStatus.COMPLETED,
-                    sync_attempts=1,
-                    synced_at=datetime.utcnow(),
-                    metadata_snapshot={
-                        "origin": "sync_batch",
-                        "device_id": payload.device_id,
-                        "app_version": payload.app_version,
-                        "connectivity_type": observation_payload.connectivity_type or "unknown",
-                        "payload_hash": item.payload_hash,
-                    },
-                )
-                db.add(synced)
-                await db.flush()
-
-                if observation_payload.plate_read is not None:
-                    db.add(
-                        PlateRead(
-                            observation_id=synced.id,
-                            ocr_raw_text=observation_payload.plate_read.ocr_raw_text,
-                            ocr_confidence=observation_payload.plate_read.ocr_confidence,
-                            ocr_engine=observation_payload.plate_read.ocr_engine,
-                            image_width=observation_payload.plate_read.image_width,
-                            image_height=observation_payload.plate_read.image_height,
-                            processing_time_ms=observation_payload.plate_read.processing_time_ms,
+                    observation_payload = VehicleObservationCreate(**item.payload)
+                    existing_result = await db.execute(
+                        select(VehicleObservation).where(
+                            VehicleObservation.client_id == observation_payload.client_id
                         )
                     )
-                    await db.flush()
+                    existing = existing_result.scalar_one_or_none()
+                    if existing is None:
+                        device = await get_or_register_device(
+                            db,
+                            device_identifier=observation_payload.device_id,
+                            current_user=current_user,
+                            app_version=payload.app_version,
+                        )
+                        synced = VehicleObservation(
+                            client_id=observation_payload.client_id,
+                            agent_id=current_user.id,
+                            agency_id=current_user.agency_id,
+                            device_id=device.id,
+                            plate_number=observation_payload.plate_number,
+                            plate_state=observation_payload.plate_state,
+                            plate_country=observation_payload.plate_country,
+                            observed_at_local=observation_payload.observed_at_local,
+                            observed_at_server=datetime.utcnow(),
+                            location=location_geometry(observation_payload.location),
+                            location_accuracy=observation_payload.location.accuracy,
+                            heading=observation_payload.heading,
+                            speed=observation_payload.speed,
+                            vehicle_color=observation_payload.vehicle_color,
+                            vehicle_type=observation_payload.vehicle_type,
+                            vehicle_model=observation_payload.vehicle_model,
+                            vehicle_year=observation_payload.vehicle_year,
+                            connectivity_type=observation_payload.connectivity_type,
+                            sync_status=SyncStatus.COMPLETED,
+                            sync_attempts=1,
+                            synced_at=datetime.utcnow(),
+                            metadata_snapshot={
+                                "origin": "sync_batch",
+                                "device_id": payload.device_id,
+                                "app_version": payload.app_version,
+                                "connectivity_type": observation_payload.connectivity_type
+                                or "unknown",
+                                "payload_hash": item.payload_hash,
+                            },
+                        )
+                        db.add(synced)
+                        await db.flush()
 
-                await evaluate_observation_algorithms(db, synced)
-                operational_context = await build_operational_context_for_observation(
-                    db,
-                    observation=synced,
-                )
-                synced.metadata_snapshot = {
-                    **(synced.metadata_snapshot or {}),
-                    "state_registry_status": operational_context.get("state_registry"),
-                    "prior_suspicion_context": operational_context.get("prior_suspicion"),
-                }
-                await event_bus.publish(
-                    "observation_created",
-                    {
-                        "payload_version": "v1",
-                        "observation_id": str(synced.id),
-                        "agent_id": str(current_user.id),
-                        "plate_number": synced.plate_number,
-                        "source": "mobile_sync_batch",
-                    },
-                )
-                server_id = synced.id
-            else:
-                server_id = existing.id
+                        if observation_payload.plate_read is not None:
+                            db.add(
+                                PlateRead(
+                                    observation_id=synced.id,
+                                    ocr_raw_text=observation_payload.plate_read.ocr_raw_text,
+                                    ocr_confidence=observation_payload.plate_read.ocr_confidence,
+                                    ocr_engine=observation_payload.plate_read.ocr_engine,
+                                    image_width=observation_payload.plate_read.image_width,
+                                    image_height=observation_payload.plate_read.image_height,
+                                    processing_time_ms=observation_payload.plate_read.processing_time_ms,
+                                )
+                            )
+                            await db.flush()
 
-            results.append(
-                SyncResult(
-                    entity_local_id=item.entity_local_id,
-                    entity_server_id=server_id,
-                    status=SyncStatus.COMPLETED,
-                    synced_at=datetime.utcnow(),
-                )
-            )
-            await event_bus.publish(
-                "sync_completed",
-                {
-                    "payload_version": "v1",
-                    "entity_type": item.entity_type,
-                    "entity_local_id": item.entity_local_id,
-                    "entity_server_id": str(server_id),
-                    "status": "completed",
-                },
-            )
-        except Exception as exc:
-            results.append(
-                SyncResult(
-                    entity_local_id=item.entity_local_id,
-                    status=SyncStatus.FAILED,
-                    error=str(exc),
-                )
-            )
-            await event_bus.publish(
-                "sync_completed",
-                {
-                    "payload_version": "v1",
-                    "entity_type": item.entity_type,
-                    "entity_local_id": item.entity_local_id,
-                    "status": "failed",
-                    "error": str(exc),
-                },
-            )
+                        await evaluate_observation_algorithms(db, synced)
+                        operational_context = await build_operational_context_for_observation(
+                            db,
+                            observation=synced,
+                        )
+                        synced.metadata_snapshot = {
+                            **(synced.metadata_snapshot or {}),
+                            "state_registry_status": operational_context.get("state_registry"),
+                            "prior_suspicion_context": operational_context.get(
+                                "prior_suspicion"
+                            ),
+                        }
+                        await event_bus.publish(
+                            "observation_created",
+                            {
+                                "payload_version": "v1",
+                                "observation_id": str(synced.id),
+                                "agent_id": str(current_user.id),
+                                "plate_number": synced.plate_number,
+                                "source": "mobile_sync_batch",
+                            },
+                        )
+                        server_id = synced.id
+                    else:
+                        server_id = existing.id
 
-    success_count = sum(1 for result in results if result.status == SyncStatus.COMPLETED)
+                    results.append(
+                        SyncResult(
+                            entity_local_id=item.entity_local_id,
+                            entity_server_id=server_id,
+                            status=SyncStatus.COMPLETED,
+                            synced_at=datetime.utcnow(),
+                        )
+                    )
+                    await event_bus.publish(
+                        "sync_completed",
+                        {
+                            "payload_version": "v1",
+                            "entity_type": item.entity_type,
+                            "entity_local_id": item.entity_local_id,
+                            "entity_server_id": str(server_id),
+                            "status": "completed",
+                        },
+                    )
+                    batch_success += 1
+                except Exception as exc:
+                    results.append(
+                        SyncResult(
+                            entity_local_id=item.entity_local_id,
+                            status=SyncStatus.FAILED,
+                            error=str(exc),
+                        )
+                    )
+                    await event_bus.publish(
+                        "sync_completed",
+                        {
+                            "payload_version": "v1",
+                            "entity_type": item.entity_type,
+                            "entity_local_id": item.entity_local_id,
+                            "status": "failed",
+                            "error": str(exc),
+                        },
+                    )
+                    batch_failed += 1
+            
+            # Commit batch
+            await db.commit()
+            
+            # Update adaptive metrics
+            batch_latency = time.time() - batch_start_time
+            batch_success_rate = batch_success / len(batch_items) if batch_items else 0
+            adaptive_strategy.update_metrics(
+                success=batch_success_rate > 0.9,
+                latency=batch_latency
+            )
+            
+            # Move to next batch
+            batch_start = batch_end
+            
+            # Re-adapt mode for next batch
+            await adaptive_strategy.adapt_mode(db)
+
+    except Exception as e:
+        # Record failure in circuit breaker
+        sync_cb.record_failure(500)
+        await db.rollback()
+        raise
+    
+    # Record success in circuit breaker
+    sync_cb.record_success()
+    
+    success_count = sum(
+        1 for result in results if result.status == SyncStatus.COMPLETED
+    )
     failed_count = len(results) - success_count
 
     pending_feedback = [
@@ -1089,21 +1291,29 @@ async def upload_observation_asset(
     db: AsyncSession = Depends(get_db),
 ):
     observation = (
-        await db.execute(
-            select(VehicleObservation).where(
-                and_(
-                    VehicleObservation.id == observation_id,
-                    VehicleObservation.agent_id == current_user.id,
+        (
+            await db.execute(
+                select(VehicleObservation).where(
+                    and_(
+                        VehicleObservation.id == observation_id,
+                        VehicleObservation.agent_id == current_user.id,
+                    )
                 )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if observation is None:
-        raise HTTPException(status_code=404, detail="Observacao nao encontrada para upload de asset")
+        raise HTTPException(
+            status_code=404, detail="Observacao nao encontrada para upload de asset"
+        )
 
     asset_type_normalized = asset_type.strip().lower()
     if asset_type_normalized not in {"image", "audio"}:
-        raise HTTPException(status_code=400, detail="asset_type invalido. Use 'image' ou 'audio'")
+        raise HTTPException(
+            status_code=400, detail="asset_type invalido. Use 'image' ou 'audio'"
+        )
 
     payload = await file.read()
     if not payload:
@@ -1174,21 +1384,29 @@ async def upload_observation_asset_progressive(
     Supports chunked upload with retry capability.
     """
     observation = (
-        await db.execute(
-            select(VehicleObservation).where(
-                and_(
-                    VehicleObservation.id == observation_id,
-                    VehicleObservation.agent_id == current_user.id,
+        (
+            await db.execute(
+                select(VehicleObservation).where(
+                    and_(
+                        VehicleObservation.id == observation_id,
+                        VehicleObservation.agent_id == current_user.id,
+                    )
                 )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if observation is None:
-        raise HTTPException(status_code=404, detail="Observacao nao encontrada para upload de asset")
+        raise HTTPException(
+            status_code=404, detail="Observacao nao encontrada para upload de asset"
+        )
 
     asset_type_normalized = asset_type.strip().lower()
     if asset_type_normalized not in {"image", "audio"}:
-        raise HTTPException(status_code=400, detail="asset_type invalido. Use 'image' ou 'audio'")
+        raise HTTPException(
+            status_code=400, detail="asset_type invalido. Use 'image' ou 'audio'"
+        )
 
     payload = await file.read()
     if not payload:
@@ -1198,6 +1416,7 @@ async def upload_observation_asset_progressive(
     if complete and upload_id and parts:
         # Complete multipart upload
         import json
+
         parts_list = json.loads(parts)
         uploaded = complete_progressive_upload(
             upload_id=upload_id,
@@ -1215,7 +1434,7 @@ async def upload_observation_asset_progressive(
             upload_id=upload_id,
             chunk_index=chunk_index,
         )
-        
+
         if result["status"] == "completed":
             # Simple upload completed
             uploaded = UploadedAsset(
@@ -1244,7 +1463,7 @@ async def upload_observation_asset_progressive(
     )
     db.add(asset)
     await db.flush()
-    
+
     await log_audit_event(
         db,
         actor=current_user,

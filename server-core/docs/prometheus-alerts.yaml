@@ -1,0 +1,101 @@
+# Prometheus Alert Rules for F.A.R.O.
+# Copy these rules to your Prometheus server
+
+# =============================================================================
+# PgBouncer Alerts
+# =============================================================================
+
+# Alerta: PgBouncer disponível mas NÃO está sendo usado
+# Ação: Habilitar PGBOUNCER_ENABLED=true
+- alert: PgBouncerAvailableNotInUse
+  expr: faro_pgbouncer_recommended == 1
+  for: 5m
+  labels:
+    severity: warning
+    component: database
+  annotations:
+    summary: "PgBouncer disponível mas não está em uso"
+    description: |
+      PgBouncer foi detectado em {{ $labels.instance }} mas não está sendo usado.
+      Isso pode impactar performance em alta carga.
+      
+      Ação recomendada:Definir PGBOUNCER_ENABLED=true
+    runbook_url: "https://faro.docs/pgbouncer-setup"
+
+# Alerta: PgBouncer em uso mas sem conexões disponíveis
+- alert: PgBouncerPoolExhausted
+  expr: faro_pgbouncer_available == 0
+  for: 2m
+  labels:
+    severity: critical
+    component: database
+  actions:
+    - restart-app
+    - scale-pgbouncer
+  annotations:
+    summary: "PgBouncer pool exhausted"
+    description: |
+      Todas as conexões do PgBouncer estão em uso!
+      Clientes podem estar aguardando.
+      
+      Ação: Incrementar pgbouncer_default_pool_size
+
+# =============================================================================
+# Database Pool Alerts
+# =============================================================================
+
+# Alerta: Conexões de DB em overflow
+- alert: DatabasePoolOverflow
+  expr: faro_db_pool_overflow > 10
+  for: 5m
+  labels:
+    severity: warning
+    component: database
+  annotations:
+    summary: "Database pool em overflow"
+    description: "Mais de 10 conexões em overflow. Considere aumentar pool_size."
+
+# =============================================================================
+# Circuit Breaker Alerts
+# =============================================================================
+
+# Alerta: Circuit breaker aberto
+- alert: CircuitBreakerOpen
+  expr: faro_circuit_breaker_current_state == 1
+  for: 1m
+  labels:
+    severity: critical
+    component: api
+  annotations:
+    summary: "Circuit breaker ABERTO para {{ $labels.endpoint }}"
+    description: |
+      O circuit breaker para {{ $labels.endpoint }} está aberto.
+      Requisições estão sendo rejeitadas.
+      
+      Ação: Verificar o serviço de backend
+
+# =============================================================================
+# Application Health
+# =============================================================================
+
+# Alerta: Alta taxa de erros HTTP
+- alert: HighErrorRate
+  expr: rate(faro_http_requests_total{status_code=~"5.."}[5m]) > 0.1
+  for: 2m
+  labels:
+    severity: critical
+    component: api
+  annotations:
+    summary: "Alta taxa de erros 5xx"
+    description: "Mais de 10% das requisições estão retornando erro 5xx"
+
+# Alerta: Latência alta
+- alert: HighLatency
+  expr: faro_http_request_duration_seconds_p95 > 5
+  for: 5m
+  labels:
+    severity: warning
+    component: api
+  annotations:
+    summary: "Latência P95 alta"
+    description: "Latência P95 > 5s. Verificar performance."

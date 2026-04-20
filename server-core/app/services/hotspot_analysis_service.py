@@ -13,7 +13,8 @@ from typing import List, Optional
 from uuid import UUID
 
 from geoalchemy2.shape import to_shape
-from sqlalchemy import and_, func, select, ST_DWithin, ST_ClusterDBSCAN, ST_Centroid, ST_NumGeometries
+from geoalchemy2.functions import ST_DWithin, ST_ClusterDBSCAN, ST_Centroid, ST_NumGeometries
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import VehicleObservation, SuspicionReport

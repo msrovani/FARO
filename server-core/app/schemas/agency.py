@@ -1,4 +1,5 @@
 """Agency schemas for BI Institutional Dashboard."""
+from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime
 from uuid import UUID
@@ -7,7 +8,7 @@ from uuid import UUID
 class AgencyBase(BaseModel):
     name: str
     code: str
-    type: str  # "local", "regional", "central"
+    type: Optional[str] = None  # "local", "regional", "central"
 
 
 class AgencyCreate(AgencyBase):

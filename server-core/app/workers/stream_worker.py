@@ -1,6 +1,7 @@
 """
 Redis Streams worker for asynchronous FARO analytical processing.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,8 +33,7 @@ class AnalyticsStreamWorker:
         self._client: Redis | None = None
         self._running = False
         self._consumer_name = (
-            settings.redis_stream_consumer_name
-            or f"{socket.gethostname()}-{id(self)}"
+            settings.redis_stream_consumer_name or f"{socket.gethostname()}-{id(self)}"
         )
 
     async def _get_client(self) -> Redis:
@@ -184,13 +184,15 @@ class AnalyticsStreamWorker:
         if self._client is not None:
             try:
                 await self._client.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Erro ao fechar Redis client no shutdown: %s", exc)
             self._client = None
 
 
 async def main() -> None:
-    logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO)
+    )
     worker = AnalyticsStreamWorker()
     try:
         await worker.run()

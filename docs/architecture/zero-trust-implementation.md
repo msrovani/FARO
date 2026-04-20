@@ -430,6 +430,8 @@ DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/faro
 REDIS_URL=redis://localhost:6379/0
 
 # MinIO/S3 Storage
+# Porta 9000: Reservada para MinIO S3 API
+# Porta 9001: Reservada para MinIO Console (UI)
 S3_ENDPOINT=http://localhost:9000
 S3_ACCESS_KEY=minioadmin
 S3_SECRET_KEY=minioadmin

@@ -3,6 +3,7 @@ Simple in-memory rate limiting middleware for development and baseline abuse pro
 
 For production clusters, this should be replaced by a shared store limiter (Redis/Nginx/Traefik).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,11 +57,13 @@ class InMemoryRateLimitMiddleware(BaseHTTPMiddleware):
                 bucket.timestamps.popleft()
 
             if len(bucket.timestamps) >= self.requests:
-                retry_after = int(max(1, self.window_seconds - (now - bucket.timestamps[0])))
+                retry_after = int(
+                    max(1, self.window_seconds - (now - bucket.timestamps[0]))
+                )
                 return JSONResponse(
                     status_code=429,
                     content={
-                        "error": "Too Many Requests",
+                        "error": "Muitas Requisições",
                         "message": "Limite de requisicoes excedido. Tente novamente em instantes.",
                     },
                     headers={"Retry-After": str(retry_after)},
@@ -73,7 +76,8 @@ class InMemoryRateLimitMiddleware(BaseHTTPMiddleware):
                 keys_to_remove = [
                     bucket_key
                     for bucket_key, bucket_value in self._buckets.items()
-                    if not bucket_value.timestamps or bucket_value.timestamps[-1] < cutoff
+                    if not bucket_value.timestamps
+                    or bucket_value.timestamps[-1] < cutoff
                 ]
                 for bucket_key in keys_to_remove:
                     self._buckets.pop(bucket_key, None)
@@ -83,7 +87,11 @@ class InMemoryRateLimitMiddleware(BaseHTTPMiddleware):
     def _is_exempt(self, path: str) -> bool:
         if path in self.exempt_paths:
             return True
-        return path.startswith("/docs") or path.startswith("/redoc") or path.startswith("/openapi.json")
+        return (
+            path.startswith("/docs")
+            or path.startswith("/redoc")
+            or path.startswith("/openapi.json")
+        )
 
     @staticmethod
     def _build_key(request: Request) -> str:

@@ -195,7 +195,7 @@ async def get_recurring_route_alerts(
     db: AsyncSession,
     agency_id: UUID,
     min_recurrence_score: float = 0.7,
-    min_pattern_strength: float = 0.6,
+    min_pattern_strength: str = "moderate",
     limit: int = 100,
 ) -> List[dict]:
     """
@@ -206,7 +206,6 @@ async def get_recurring_route_alerts(
         and_(
             RoutePattern.agency_id == agency_id,
             RoutePattern.recurrence_score >= min_recurrence_score,
-            RoutePattern.pattern_strength >= min_pattern_strength,
         )
     ).order_by(RoutePattern.recurrence_score.desc()).limit(limit)
     

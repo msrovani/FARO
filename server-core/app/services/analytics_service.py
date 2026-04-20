@@ -3,6 +3,7 @@ Heuristic, explainable analytical engine for FARO.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -10,6 +11,9 @@ from typing import Any
 from geoalchemy2.shape import to_shape
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.utils.cache import cached_query
+from app.core.observability import record_algorithm_execution, record_suspicion_score_compute
 
 from app.db.base import (
     AlgorithmDecision,
@@ -90,7 +94,26 @@ async def _register_run(
     return run
 
 
+@cached_query(ttl=300)  # 5 minutos
+async def get_active_route_regions(db: AsyncSession) -> list[RouteRegionOfInterest]:
+    """Get all active route regions of interest (cached)."""
+    result = await db.execute(
+        select(RouteRegionOfInterest).where(RouteRegionOfInterest.is_active.is_(True))
+    )
+    return result.scalars().all()
+
+
+@cached_query(ttl=300)  # 5 minutos
+async def get_active_sensitive_zones(db: AsyncSession) -> list[SensitiveAssetZone]:
+    """Get all active sensitive zones (cached)."""
+    result = await db.execute(
+        select(SensitiveAssetZone).where(SensitiveAssetZone.is_active.is_(True))
+    )
+    return result.scalars().all()
+
+
 async def evaluate_watchlist(db: AsyncSession, observation: VehicleObservation) -> WatchlistHit | None:
+    start_time = time.time()
     plate = observation.plate_number
     result = await db.execute(
         select(WatchlistEntry)
@@ -156,10 +179,20 @@ async def evaluate_watchlist(db: AsyncSession, observation: VehicleObservation) 
             "decision": outcome.decision.value,
         },
     )
+    
+    # Record metrics (Otimização Fase 6)
+    duration_seconds = time.time() - start_time
+    record_algorithm_execution(
+        algorithm_type="watchlist",
+        duration_seconds=duration_seconds,
+        success=True
+    )
+    
     return hit
 
 
 async def evaluate_impossible_travel(db: AsyncSession, observation: VehicleObservation) -> ImpossibleTravelEvent | None:
+    start_time = time.time()
     result = await db.execute(
         select(VehicleObservation)
         .where(
@@ -240,11 +273,21 @@ async def evaluate_impossible_travel(db: AsyncSession, observation: VehicleObser
         "impossible_travel_evaluated",
         {"payload_version": "v1", "algorithm_run_id": str(run.id), "observation_id": str(observation.id), "decision": outcome.decision.value},
     )
+    
+    # Record metrics (Otimização Fase 6)
+    duration_seconds = time.time() - start_time
+    record_algorithm_execution(
+        algorithm_type="impossible_travel",
+        duration_seconds=duration_seconds,
+        success=True
+    )
+    
     return event
 
 
 async def evaluate_route_anomaly(db: AsyncSession, observation: VehicleObservation) -> RouteAnomalyEvent | None:
-    regions = (await db.execute(select(RouteRegionOfInterest).where(RouteRegionOfInterest.is_active.is_(True)))).scalars().all()
+    start_time = time.time()
+    regions = await get_active_route_regions(db)
     if not regions:
         return None
     point = to_shape(observation.location)
@@ -296,11 +339,21 @@ async def evaluate_route_anomaly(db: AsyncSession, observation: VehicleObservati
         "route_anomaly_evaluated",
         {"payload_version": "v1", "algorithm_run_id": str(run.id), "observation_id": str(observation.id), "decision": outcome.decision.value},
     )
+    
+    # Record metrics (Otimização Fase 6)
+    duration_seconds = time.time() - start_time
+    record_algorithm_execution(
+        algorithm_type="route_anomaly",
+        duration_seconds=duration_seconds,
+        success=True
+    )
+    
     return event
 
 
 async def evaluate_sensitive_zone_recurrence(db: AsyncSession, observation: VehicleObservation) -> SensitiveAssetRecurrenceEvent | None:
-    zones = (await db.execute(select(SensitiveAssetZone).where(SensitiveAssetZone.is_active.is_(True)))).scalars().all()
+    start_time = time.time()
+    zones = await get_active_sensitive_zones(db)
     if not zones:
         return None
     point = to_shape(observation.location)
@@ -355,10 +408,20 @@ async def evaluate_sensitive_zone_recurrence(db: AsyncSession, observation: Vehi
     )
     db.add(event)
     await event_bus.publish("sensitive_zone_recurrence_evaluated", {"payload_version": "v1", "algorithm_run_id": str(run.id), "observation_id": str(observation.id), "decision": outcome.decision.value})
+    
+    # Record metrics (Otimização Fase 6)
+    duration_seconds = time.time() - start_time
+    record_algorithm_execution(
+        algorithm_type="sensitive_zone_recurrence",
+        duration_seconds=duration_seconds,
+        success=True
+    )
+    
     return event
 
 
-async def evaluate_convoy(db: AsyncSession, observation: VehicleObservation) -> list[ConvoyEvent]:
+async def evaluate_convoy(db: AsyncSession, observation: VehicleObservation, current_point=None) -> list[ConvoyEvent]:
+    start_time = time.time()
     result = await db.execute(
         select(VehicleObservation)
         .where(
@@ -370,25 +433,45 @@ async def evaluate_convoy(db: AsyncSession, observation: VehicleObservation) -> 
         )
     )
     neighbors = result.scalars().all()
-    current_point = to_shape(observation.location)
+    # Use provided point or convert from location geometry
+    if current_point is None:
+        current_point = to_shape(observation.location)
     events: list[ConvoyEvent] = []
+    
+    # Filtrar vizinhos por distância primeiro
+    nearby_neighbors = []
     for neighbor in neighbors:
         if neighbor.plate_number == observation.plate_number:
             continue
+        # Convert neighbor location geometry to shape to avoid lazy-loading issues
         neighbor_point = to_shape(neighbor.location)
         distance_km = (((current_point.y - neighbor_point.y) * 111.0) ** 2 + ((current_point.x - neighbor_point.x) * 111.0) ** 2) ** 0.5
         if distance_km > 2.0:
             continue
-        historical_count = (
-            await db.execute(
-                select(func.count(ConvoyEvent.id)).where(
-                    and_(
-                        ConvoyEvent.primary_plate == observation.plate_number,
-                        ConvoyEvent.related_plate == neighbor.plate_number,
-                    )
-                )
+        nearby_neighbors.append((neighbor, distance_km))
+    
+    if not nearby_neighbors:
+        return events
+    
+    # Single query com GROUP BY para contar histórico de todos os pares
+    neighbor_plates = [neighbor.plate_number for neighbor, _ in nearby_neighbors]
+    historical_counts_result = await db.execute(
+        select(ConvoyEvent.primary_plate, ConvoyEvent.related_plate, func.count(ConvoyEvent.id).label('count'))
+        .where(
+            and_(
+                ConvoyEvent.primary_plate == observation.plate_number,
+                ConvoyEvent.related_plate.in_(neighbor_plates)
             )
-        ).scalar() or 0
+        )
+        .group_by(ConvoyEvent.primary_plate, ConvoyEvent.related_plate)
+    )
+    
+    # Criar mapa de contagens
+    count_map = {(row.primary_plate, row.related_plate): row.count for row in historical_counts_result}
+    
+    # Processar vizinhos sem queries adicionais
+    for neighbor, distance_km in nearby_neighbors:
+        historical_count = count_map.get((observation.plate_number, neighbor.plate_number), 0)
         decision = AlgorithmDecision.STRONG_CONVOY if historical_count >= 3 else AlgorithmDecision.PROBABLE_CONVOY if historical_count >= 1 else AlgorithmDecision.REPEATED
         severity = "high" if decision != AlgorithmDecision.REPEATED else "moderate"
         confidence = 0.79 if decision == AlgorithmDecision.STRONG_CONVOY else 0.63
@@ -415,10 +498,20 @@ async def evaluate_convoy(db: AsyncSession, observation: VehicleObservation) -> 
         db.add(event)
         events.append(event)
         await event_bus.publish("convoy_evaluated", {"payload_version": "v1", "algorithm_run_id": str(run.id), "observation_id": str(observation.id), "related_plate": neighbor.plate_number, "decision": outcome.decision.value})
+    
+    # Record metrics (Otimização Fase 6)
+    duration_seconds = time.time() - start_time
+    record_algorithm_execution(
+        algorithm_type="convoy",
+        duration_seconds=duration_seconds,
+        success=True
+    )
+    
     return events
 
 
 async def evaluate_roaming(db: AsyncSession, observation: VehicleObservation) -> RoamingEvent | None:
+    start_time = time.time()
     recent_count = (
         await db.execute(
             select(func.count(VehicleObservation.id)).where(
@@ -457,50 +550,73 @@ async def evaluate_roaming(db: AsyncSession, observation: VehicleObservation) ->
     )
     db.add(event)
     await event_bus.publish("roaming_evaluated", {"payload_version": "v1", "algorithm_run_id": str(run.id), "observation_id": str(observation.id), "decision": outcome.decision.value})
+    
+    # Record metrics (Otimização Fase 6)
+    duration_seconds = time.time() - start_time
+    record_algorithm_execution(
+        algorithm_type="roaming",
+        duration_seconds=duration_seconds,
+        success=True
+    )
+    
     return event
 
 
 async def compute_suspicion_score(db: AsyncSession, observation: VehicleObservation) -> SuspicionScore:
+    import asyncio
+    start_time = time.time()
+    
     factors: list[tuple[str, str, float, float, str, str]] = []
     total = 0.0
 
-    watchlist_hit = (await db.execute(select(WatchlistHit).where(WatchlistHit.observation_id == observation.id))).scalars().first()
+    # Executar todas as queries em paralelo (são independentes)
+    watchlist_result, impossible_result, route_result, sensitive_result, convoy_result, roaming_result, suspicion_result = await asyncio.gather(
+        db.execute(select(WatchlistHit).where(WatchlistHit.observation_id == observation.id)),
+        db.execute(select(ImpossibleTravelEvent).where(ImpossibleTravelEvent.observation_id == observation.id)),
+        db.execute(select(RouteAnomalyEvent).where(RouteAnomalyEvent.observation_id == observation.id)),
+        db.execute(select(SensitiveAssetRecurrenceEvent).where(SensitiveAssetRecurrenceEvent.observation_id == observation.id)),
+        db.execute(select(func.count(ConvoyEvent.id)).where(ConvoyEvent.observation_id == observation.id)),
+        db.execute(select(RoamingEvent).where(RoamingEvent.observation_id == observation.id)),
+        db.execute(select(SuspicionReport).where(SuspicionReport.observation_id == observation.id)),
+    )
+    
+    watchlist_hit = watchlist_result.scalars().first()
     if watchlist_hit:
         contribution = 40.0 if watchlist_hit.decision in {AlgorithmDecision.CRITICAL_MATCH, AlgorithmDecision.RELEVANT_MATCH} else 18.0
         total += contribution
         factors.append(("watchlist_match", "watchlist", 1.0, contribution, watchlist_hit.explanation, "positive"))
 
-    impossible_event = (await db.execute(select(ImpossibleTravelEvent).where(ImpossibleTravelEvent.observation_id == observation.id))).scalars().first()
+    impossible_event = impossible_result.scalars().first()
     if impossible_event:
         contribution = 25.0 if impossible_event.decision == AlgorithmDecision.IMPOSSIBLE else 14.0
         total += contribution
         factors.append(("impossible_travel", "impossible_travel", 0.9, contribution, impossible_event.explanation, "positive"))
 
-    route_event = (await db.execute(select(RouteAnomalyEvent).where(RouteAnomalyEvent.observation_id == observation.id))).scalars().first()
+    route_event = route_result.scalars().first()
     if route_event:
         contribution = 16.0 if route_event.decision in {AlgorithmDecision.STRONG_ANOMALY, AlgorithmDecision.RELEVANT_ANOMALY} else 8.0
         total += contribution
         factors.append(("route_anomaly", "route_anomaly", 0.7, contribution, route_event.explanation, "positive"))
 
-    sensitive_event = (await db.execute(select(SensitiveAssetRecurrenceEvent).where(SensitiveAssetRecurrenceEvent.observation_id == observation.id))).scalars().first()
+    sensitive_event = sensitive_result.scalars().first()
     if sensitive_event:
         contribution = 18.0 if sensitive_event.recurrence_count >= 4 else 9.0
         total += contribution
         factors.append(("sensitive_zone", "sensitive_zone_recurrence", 0.8, contribution, sensitive_event.explanation, "positive"))
 
-    convoy_count = (await db.execute(select(func.count(ConvoyEvent.id)).where(ConvoyEvent.observation_id == observation.id))).scalar() or 0
+    convoy_count = convoy_result.scalar() or 0
     if convoy_count:
         contribution = min(convoy_count * 6.0, 18.0)
         total += contribution
         factors.append(("convoy", "convoy", 0.7, contribution, f"Coocorrencia detectada com {convoy_count} veiculo(s).", "positive"))
 
-    roaming_event = (await db.execute(select(RoamingEvent).where(RoamingEvent.observation_id == observation.id))).scalars().first()
+    roaming_event = roaming_result.scalars().first()
     if roaming_event:
         contribution = 12.0 if roaming_event.recurrence_count >= 4 else 6.0
         total += contribution
         factors.append(("roaming", "roaming", 0.6, contribution, roaming_event.explanation, "positive"))
 
-    suspicion_report = (await db.execute(select(SuspicionReport).where(SuspicionReport.observation_id == observation.id))).scalars().first()
+    suspicion_report = suspicion_result.scalars().first()
     if suspicion_report:
         field_contribution = {"low": 4.0, "medium": 8.0, "high": 14.0}[suspicion_report.level.value]
         total += field_contribution
@@ -587,15 +703,27 @@ async def compute_suspicion_score(db: AsyncSession, observation: VehicleObservat
         ),
     )
     await event_bus.publish("suspicion_score_computed", {"payload_version": "v1", "algorithm_run_id": str(run.id), "observation_id": str(observation.id), "decision": label.value, "score": score})
+    
+    # Record metrics (Otimização Fase 6)
+    duration_seconds = time.time() - start_time
+    record_suspicion_score_compute(duration_seconds=duration_seconds)
+    
     return score_row
 
 
 async def evaluate_observation_algorithms(db: AsyncSession, observation: VehicleObservation) -> None:
+    # Run algorithms sequentially to avoid concurrent flush issues
     await evaluate_watchlist(db, observation)
     await evaluate_impossible_travel(db, observation)
     await evaluate_route_anomaly(db, observation)
     await evaluate_sensitive_zone_recurrence(db, observation)
-    await evaluate_convoy(db, observation)
     await evaluate_roaming(db, observation)
+
+    # Convert location geometry to shape before passing to avoid lazy-loading issues
+    from geoalchemy2.shape import to_shape
+    current_point = to_shape(observation.location)
+    await evaluate_convoy(db, observation, current_point)
+
+    # Score composto (depende de todos os eventos)
     await compute_suspicion_score(db, observation)
 

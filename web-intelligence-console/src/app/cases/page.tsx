@@ -272,190 +272,202 @@ export default function CasesPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_1.1fr]">
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-5">
-            <h2 className="text-lg font-semibold text-slate-950">Novo caso</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Use para agrupar registros relacionados, consolidar hipotese e manter acompanhamento.
-            </p>
-          </div>
+      <div className="flex flex-col gap-6">
+        {/* Linha superior: duas janelas lado a lado */}
+        <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-lg font-semibold text-slate-950">Novo caso</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Use para agrupar registros relacionados, consolidar hipotese e manter acompanhamento.
+              </p>
+            </div>
 
-          <form className="space-y-4" onSubmit={submitCase}>
-            <Field label="Titulo do caso">
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                placeholder="Ex.: Veiculo prata recorrente em corredor industrial"
-              />
-            </Field>
-            <Field label="Hipotese analitica">
-              <textarea
-                value={hypothesis}
-                onChange={(event) => setHypothesis(event.target.value)}
-                className="min-h-24 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                placeholder="Descreva a linha analitica central do caso."
-              />
-            </Field>
-            <Field label="Sintese operacional">
-              <textarea
-                value={summary}
-                onChange={(event) => setSummary(event.target.value)}
-                className="min-h-24 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                placeholder="Resumo curto para leitura rapida da mesa e da supervisao."
-              />
-            </Field>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Status inicial">
+            <form className="space-y-4" onSubmit={submitCase}>
+              <Field label="Titulo do caso">
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  placeholder="Ex.: Veiculo prata recorrente em corredor industrial"
+                />
+              </Field>
+              <Field label="Hipotese analitica">
+                <textarea
+                  value={hypothesis}
+                  onChange={(event) => setHypothesis(event.target.value)}
+                  className="min-h-24 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  placeholder="Descreva a linha analitica central do caso."
+                />
+              </Field>
+              <Field label="Sintese operacional">
+                <textarea
+                  value={summary}
+                  onChange={(event) => setSummary(event.target.value)}
+                  className="min-h-24 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  placeholder="Resumo curto para leitura rapida da mesa e da supervisao."
+                />
+              </Field>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Status inicial">
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value as IntelligenceCase["status"])}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  >
+                    {statusOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {humanize(option)}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Prioridade">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={priority}
+                    onChange={(event) => setPriority(Number(event.target.value))}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  />
+                </Field>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field label="Sensibilidade">
+                  <input
+                    value={sensitivityLevel}
+                    onChange={(event) => setSensitivityLevel(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  />
+                </Field>
+                <Field label="Revisao obrigatoria">
+                  <input
+                    type="datetime-local"
+                    value={reviewDueAt}
+                    onChange={(event) => setReviewDueAt(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  />
+                </Field>
+              </div>
+              <button
+                type="submit"
+                disabled={title.trim().length < 5 || submitting}
+                className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {submitting ? "Processando caso..." : "Criar caso analitico"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void updateSelectedCase()}
+                disabled={!selectedCaseId || title.trim().length < 5 || submitting}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+              >
+                {selectedCaseId ? "Atualizar caso selecionado" : "Selecione um caso para editar"}
+              </button>
+            </form>
+          </section>
+
+          <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+            <div className="mb-5">
+              <h2 className="text-lg font-semibold text-slate-950">Feedback de caso para campo</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Envie retorno operacional de caso analitico para equipes de campo.
+              </p>
+            </div>
+
+            <form className="space-y-4" onSubmit={sendCaseFeedback}>
+              <Field label="Template">
                 <select
-                  value={status}
-                  onChange={(event) => setStatus(event.target.value as IntelligenceCase["status"])}
+                  value={feedbackTemplateId}
+                  onChange={(event) => applyTemplate(event.target.value)}
                   className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
                 >
-                  {statusOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {humanize(option)}
+                  <option value="">Sem template</option>
+                  {feedbackTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name} - {template.feedback_type}
                     </option>
                   ))}
                 </select>
               </Field>
-              <Field label="Prioridade">
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={priority}
-                  onChange={(event) => setPriority(Number(event.target.value))}
+              <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+                <Field label="Buscar destinatario">
+                  <input
+                    value={recipientQuery}
+                    onChange={(event) => setRecipientQuery(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                    placeholder="Nome, matricula, email, unidade ou codigo"
+                  />
+                </Field>
+                <button
+                  type="button"
+                  onClick={() => void searchRecipients()}
+                  disabled={recipientLoading || recipientQuery.trim().length < 2}
+                  className="mt-7 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                >
+                  {recipientLoading ? "Buscando..." : "Buscar"}
+                </button>
+              </div>
+              <Field label="Destinatario sugerido">
+                <select
+                  value={feedbackTargetUserId || feedbackTargetTeam}
+                  onChange={(event) => applyRecipient(event.target.value)}
                   className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                />
+                >
+                  <option value="">Sem selecao</option>
+                  {recipientOptions.map((recipient) => (
+                    <option
+                      key={`${recipient.recipient_type}-${recipient.user_id || recipient.target_team_label}`}
+                      value={recipient.recipient_type === "user" ? recipient.user_id : recipient.target_team_label}
+                    >
+                      {recipient.label}
+                    </option>
+                  ))}
+                </select>
               </Field>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Sensibilidade">
-                <input
-                  value={sensitivityLevel}
-                  onChange={(event) => setSensitivityLevel(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                />
-              </Field>
-              <Field label="Revisao obrigatoria">
-                <input
-                  type="datetime-local"
-                  value={reviewDueAt}
-                  onChange={(event) => setReviewDueAt(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                />
-              </Field>
-            </div>
-            <button
-              type="submit"
-              disabled={title.trim().length < 5 || submitting}
-              className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {submitting ? "Processando caso..." : "Criar caso analitico"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void updateSelectedCase()}
-              disabled={!selectedCaseId || title.trim().length < 5 || submitting}
-              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-            >
-              {selectedCaseId ? "Atualizar caso selecionado" : "Selecione um caso para editar"}
-            </button>
-          </form>
-
-          <form className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4" onSubmit={sendCaseFeedback}>
-            <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-600">Feedback de caso para campo</h3>
-            <Field label="Template">
-              <select
-                value={feedbackTemplateId}
-                onChange={(event) => applyTemplate(event.target.value)}
-                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-              >
-                <option value="">Sem template</option>
-                {feedbackTemplates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name} - {template.feedback_type}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="grid gap-4 md:grid-cols-[1fr_auto]">
-              <Field label="Buscar destinatario">
-                <input
-                  value={recipientQuery}
-                  onChange={(event) => setRecipientQuery(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                  placeholder="Nome, matricula, email, unidade ou codigo"
+              <div className="grid gap-4 md:grid-cols-3">
+                <Field label="Tipo">
+                  <input
+                    value={feedbackType}
+                    onChange={(event) => setFeedbackType(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  />
+                </Field>
+                <Field label="Sensibilidade">
+                  <input
+                    value={feedbackSensitivity}
+                    onChange={(event) => setFeedbackSensitivity(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  />
+                </Field>
+                <Field label="Titulo">
+                  <input
+                    value={feedbackTitle}
+                    onChange={(event) => setFeedbackTitle(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
+                  />
+                </Field>
+              </div>
+              <Field label="Mensagem">
+                <textarea
+                  value={feedbackMessage}
+                  onChange={(event) => setFeedbackMessage(event.target.value)}
+                  className="min-h-24 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
                 />
               </Field>
               <button
-                type="button"
-                onClick={() => void searchRecipients()}
-                disabled={recipientLoading || recipientQuery.trim().length < 2}
-                className="mt-7 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                type="submit"
+                disabled={!selectedCaseId || (!feedbackTargetUserId && !feedbackTargetTeam) || !feedbackTitle.trim() || sendingFeedback}
+                className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                {recipientLoading ? "Buscando..." : "Buscar"}
+                {sendingFeedback ? "Enviando..." : "Enviar feedback deste caso"}
               </button>
-            </div>
-            <Field label="Destinatario sugerido">
-              <select
-                value={feedbackTargetUserId || feedbackTargetTeam}
-                onChange={(event) => applyRecipient(event.target.value)}
-                className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-              >
-                <option value="">Sem selecao</option>
-                {recipientOptions.map((recipient) => (
-                  <option
-                    key={`${recipient.recipient_type}-${recipient.user_id || recipient.target_team_label}`}
-                    value={recipient.recipient_type === "user" ? recipient.user_id : recipient.target_team_label}
-                  >
-                    {recipient.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Tipo">
-                <input
-                  value={feedbackType}
-                  onChange={(event) => setFeedbackType(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                />
-              </Field>
-              <Field label="Sensibilidade">
-                <input
-                  value={feedbackSensitivity}
-                  onChange={(event) => setFeedbackSensitivity(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                />
-              </Field>
-              <Field label="Titulo">
-                <input
-                  value={feedbackTitle}
-                  onChange={(event) => setFeedbackTitle(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-                />
-              </Field>
-            </div>
-            <Field label="Mensagem">
-              <textarea
-                value={feedbackMessage}
-                onChange={(event) => setFeedbackMessage(event.target.value)}
-                className="min-h-24 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm text-slate-900"
-              />
-            </Field>
-            <button
-              type="submit"
-              disabled={!selectedCaseId || (!feedbackTargetUserId && !feedbackTargetTeam) || !feedbackTitle.trim() || sendingFeedback}
-              className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
-              {sendingFeedback ? "Enviando..." : "Enviar feedback deste caso"}
-            </button>
-          </form>
-        </section>
+            </form>
+          </section>
+        </div>
 
+        {/* Linha inferior: Kanban ocupando toda a largura */}
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden flex flex-col">
           <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>

@@ -10,9 +10,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from docx import Document
 from docx.shared import Inches, Pt
-from app.db.base import AuditLogEntry
+from app.db.base import AuditLog
 from sqlalchemy.orm import Session
-from app.models.audit import AuditEvent
 
 class CertifiedReportService:
     @staticmethod

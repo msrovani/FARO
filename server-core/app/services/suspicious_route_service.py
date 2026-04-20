@@ -9,8 +9,9 @@ from typing import Any, List, Optional
 from uuid import UUID
 
 from geoalchemy2.shape import from_shape, to_shape
+from geoalchemy2.functions import ST_Distance, ST_Intersects, ST_Buffer
 from shapely.geometry import LineString, Point
-from sqlalchemy import and_, func, select, ST_Distance, ST_Intersects, ST_Buffer
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import (
@@ -160,20 +161,9 @@ async def check_route_match(
 ) -> SuspiciousRouteMatchResponse:
     """
     Check if an observation matches any suspicious route using PostGIS.
-    Uses ST_Intersects for direct intersection and ST_Distance for proximity.
+    Uses single SQL query with ST_Intersects and ST_DWithin for batch processing.
     """
-    # Get active approved routes for the agency
-    query = select(SuspiciousRoute).where(
-        and_(
-            SuspiciousRoute.agency_id == agency_id,
-            SuspiciousRoute.is_active == True,
-            SuspiciousRoute.approval_status == "approved",
-        )
-    )
-    routes = (await db.execute(query)).scalars().all()
-    
-    matched_routes = []
-    min_distance = None
+    from sqlalchemy import text
     
     # Convert observation point to PostGIS Point
     obs_point = Point(match_request.location.longitude, match_request.location.latitude)
@@ -183,52 +173,72 @@ async def check_route_match(
     obs_hour = match_request.observed_at.hour
     obs_day = match_request.observed_at.weekday()
     
-    for route in routes:
-        # Check time constraints
-        if route.active_from_hour is not None and obs_hour < route.active_from_hour:
-            continue
-        if route.active_to_hour is not None and obs_hour > route.active_to_hour:
-            continue
-        if route.active_days is not None and obs_day not in route.active_days:
-            continue
-        
-        # Check spatial intersection
-        intersects_query = select(
-            ST_Intersects(route.route_geometry, obs_geom)
-        ).where(SuspiciousRoute.id == route.id)
-        intersects = (await db.execute(intersects_query)).scalar()
-        
-        if intersects:
-            matched_routes.append({
-                "route_id": str(route.id),
-                "route_name": route.name,
-                "crime_type": route.crime_type,
-                "risk_level": route.risk_level,
-                "match_type": "intersection",
-            })
-            continue
-        
-        # Check proximity using buffer if configured
-        if route.buffer_distance_meters:
-            buffer_query = select(
-                ST_Distance(
-                    ST_Buffer(route.route_geometry, route.buffer_distance_meters),
-                    obs_geom
-                )
-            ).where(SuspiciousRoute.id == route.id)
-            distance = (await db.execute(buffer_query)).scalar()
-            
-            if distance is not None and distance <= route.buffer_distance_meters:
-                if min_distance is None or distance < min_distance:
-                    min_distance = distance
-                matched_routes.append({
-                    "route_id": str(route.id),
-                    "route_name": route.name,
-                    "crime_type": route.crime_type,
-                    "risk_level": route.risk_level,
-                    "match_type": "proximity",
-                    "distance_meters": distance,
-                })
+    # Single query to find all matching routes
+    # Uses ST_Intersects for direct intersection and ST_DWithin for proximity
+    query = text("""
+        SELECT 
+            id, name, crime_type, risk_level,
+            CASE 
+                WHEN ST_Intersects(route_geometry, :obs_geom) THEN 'intersection'
+                WHEN buffer_distance_meters IS NOT NULL 
+                     AND ST_DWithin(route_geometry, :obs_geom, buffer_distance_meters) 
+                THEN 'proximity'
+                ELSE NULL
+            END as match_type,
+            CASE 
+                WHEN buffer_distance_meters IS NOT NULL 
+                     AND ST_DWithin(route_geometry, :obs_geom, buffer_distance_meters) 
+                THEN ST_Distance(route_geometry, :obs_geom)
+                ELSE NULL
+            END as distance_meters
+        FROM suspiciousroute
+        WHERE 
+            agency_id = :agency_id
+            AND is_active = true
+            AND approval_status = 'approved'
+            AND (
+                active_from_hour IS NULL OR :obs_hour >= active_from_hour
+            )
+            AND (
+                active_to_hour IS NULL OR :obs_hour <= active_to_hour
+            )
+            AND (
+                active_days IS NULL OR :obs_day = ANY(active_days)
+            )
+            AND (
+                ST_Intersects(route_geometry, :obs_geom)
+                OR (buffer_distance_meters IS NOT NULL 
+                    AND ST_DWithin(route_geometry, :obs_geom, buffer_distance_meters))
+            )
+    """)
+    
+    # Convert geometry to WKT for SQL
+    from geoalchemy2.shape import to_shape
+    obs_geom_wkt = to_shape(obs_geom).to_wkt()
+    
+    result = await db.execute(query, {
+        "agency_id": str(agency_id),
+        "obs_geom": obs_geom_wkt,
+        "obs_hour": obs_hour,
+        "obs_day": obs_day,
+    })
+    
+    matched_routes = []
+    min_distance = None
+    
+    for row in result:
+        match_data = {
+            "route_id": str(row.id),
+            "route_name": row.name,
+            "crime_type": row.crime_type,
+            "risk_level": row.risk_level,
+            "match_type": row.match_type,
+        }
+        if row.distance_meters is not None:
+            match_data["distance_meters"] = row.distance_meters
+            if min_distance is None or row.distance_meters < min_distance:
+                min_distance = row.distance_meters
+        matched_routes.append(match_data)
     
     return SuspiciousRouteMatchResponse(
         matches=len(matched_routes) > 0,

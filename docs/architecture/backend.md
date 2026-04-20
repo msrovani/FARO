@@ -25,6 +25,9 @@ O `server-core` segue `modular monolith`, com fronteiras internas claras e extra
 - **hotspot_analysis** (analise de hotspots de criminalidade)
 - **route_prediction** (previsao de rotas baseada em padroes)
 - **alert_service** (alertas automaticos)
+- **cache** (camada de cache Redis para queries)
+- **observability** (metricas Prometheus e tracing)
+- **materialized_views** (materialized views para hotspots)
 
 ## Capacidades ja implementadas
 

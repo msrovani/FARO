@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import MapBase from "../components/map/MapBase";
 import RouteMarker from "../components/RouteMarker";
 import { Route, Plus, Edit, Trash2, Check, X, Filter } from "lucide-react";
+import { suspiciousRoutesApi } from "@/app/services/api";
 
 interface SuspiciousRoutePoint {
   latitude: number;
@@ -25,6 +26,7 @@ interface SuspiciousRoute {
 export default function SuspiciousRoutesPage() {
   const [routes, setRoutes] = useState<SuspiciousRoute[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<SuspiciousRoute | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newRoutePoints, setNewRoutePoints] = useState<SuspiciousRoutePoint[]>([]);
@@ -35,43 +37,32 @@ export default function SuspiciousRoutesPage() {
     is_active: null as boolean | null,
   });
 
-  // Mock data - replace with API call
-  useEffect(() => {
-    setTimeout(() => {
-      setRoutes([
-        {
-          id: "1",
-          name: "Rota Tráfico Porto Alegre",
-          crime_type: "drug_trafficking",
-          risk_level: "high",
-          route_points: [
-            { latitude: -30.0346, longitude: -51.2177 },
-            { latitude: -30.0450, longitude: -51.2300 },
-            { latitude: -30.0550, longitude: -51.2450 },
-          ],
-          direction: "inbound",
-          is_active: true,
-          approval_status: "approved",
-          justification: "Rota identificada em operações anteriores",
-        },
-        {
-          id: "2",
-          name: "Rota Fuga Centro",
-          crime_type: "escape",
-          risk_level: "critical",
-          route_points: [
-            { latitude: -30.0250, longitude: -51.2050 },
-            { latitude: -30.0350, longitude: -51.2150 },
-            { latitude: -30.0450, longitude: -51.2250 },
-          ],
-          direction: "outbound",
-          is_active: true,
-          approval_status: "pending",
-        },
-      ]);
+  const loadRoutes = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await suspiciousRoutesApi.list({
+        crime_type: filters.crime_type || undefined,
+        risk_level: filters.risk_level || undefined,
+        approval_status: filters.approval_status || undefined,
+        is_active: filters.is_active === null ? undefined : filters.is_active,
+        page: 1,
+        page_size: 100,
+      });
+      setRoutes(response.routes as SuspiciousRoute[]);
+    } catch (err) {
+      console.error(err);
+      setError("Nao foi possivel carregar rotas suspeitas reais.");
+      setRoutes([]);
+    } finally {
       setLoading(false);
-    }, 1000);
-  }, []);
+    }
+  };
+
+  useEffect(() => {
+    void loadRoutes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.crime_type, filters.risk_level, filters.approval_status, filters.is_active]);
 
   const handleMapClick = (e: any) => {
     if (isCreating) {
@@ -85,25 +76,29 @@ export default function SuspiciousRoutesPage() {
     setNewRoutePoints([]);
   };
 
-  const handleSaveRoute = () => {
+  const handleSaveRoute = async () => {
     if (newRoutePoints.length < 2) {
       alert("Mínimo de 2 pontos necessários");
       return;
     }
-    // Replace with actual API call
-    const newRoute: SuspiciousRoute = {
-      id: Date.now().toString(),
-      name: "Nova Rota",
-      crime_type: "other",
-      risk_level: "medium",
-      route_points: newRoutePoints,
-      direction: "bidirectional",
-      is_active: true,
-      approval_status: "pending",
-    };
-    setRoutes([...routes, newRoute]);
-    setIsCreating(false);
-    setNewRoutePoints([]);
+    try {
+      setLoading(true);
+      setError(null);
+      await suspiciousRoutesApi.create({
+        name: `Nova Rota ${new Date().toLocaleString()}`,
+        crime_type: "other",
+        risk_level: "medium",
+        direction: "bidirectional",
+        route_points: newRoutePoints,
+      });
+      setIsCreating(false);
+      setNewRoutePoints([]);
+      await loadRoutes();
+    } catch (err) {
+      console.error(err);
+      setError("Falha ao criar rota suspeita.");
+      setLoading(false);
+    }
   };
 
   const handleCancelCreate = () => {
@@ -111,16 +106,32 @@ export default function SuspiciousRoutesPage() {
     setNewRoutePoints([]);
   };
 
-  const handleDeleteRoute = (id: string) => {
+  const handleDeleteRoute = async (id: string) => {
     if (confirm("Tem certeza que deseja desativar esta rota?")) {
-      setRoutes(routes.filter(r => r.id !== id));
+      try {
+        setLoading(true);
+        setError(null);
+        await suspiciousRoutesApi.remove(id);
+        await loadRoutes();
+      } catch (err) {
+        console.error(err);
+        setError("Falha ao desativar rota.");
+        setLoading(false);
+      }
     }
   };
 
-  const handleApproveRoute = (id: string) => {
-    setRoutes(routes.map(r => 
-      r.id === id ? { ...r, approval_status: "approved" } : r
-    ));
+  const handleApproveRoute = async (id: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      await suspiciousRoutesApi.approve(id, { approval_status: "approved" });
+      await loadRoutes();
+    } catch (err) {
+      console.error(err);
+      setError("Falha ao aprovar rota.");
+      setLoading(false);
+    }
   };
 
   const filteredRoutes = routes.filter(route => {
@@ -226,6 +237,11 @@ export default function SuspiciousRoutesPage() {
 
         {/* Routes List */}
         <div>
+          {error && (
+            <div className="mb-3 rounded-lg border border-red-500/40 bg-red-900/20 p-3 text-xs text-red-200">
+              {error}
+            </div>
+          )}
           <h3 className="text-sm font-semibold text-gray-300 mb-2">
             Rotas ({filteredRoutes.length})
           </h3>

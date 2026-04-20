@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import MapBase from "../components/map/MapBase";
 import HotspotMarker from "../components/map/HotspotMarker";
 import { Activity, MapPin, Clock, Users, AlertTriangle, Play, Pause } from "lucide-react";
+import { hotspotsApi } from "@/app/services/api";
 
 interface HotspotPoint {
   latitude: number;
@@ -27,6 +28,7 @@ interface HotspotAnalysisResult {
 export default function HotspotsPage() {
   const [hotspots, setHotspots] = useState<HotspotPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedHotspot, setSelectedHotspot] = useState<HotspotPoint | null>(null);
   const [filters, setFilters] = useState({
     clusterRadius: 500,
@@ -36,47 +38,35 @@ export default function HotspotsPage() {
   const [timeRange, setTimeRange] = useState(24);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Mock data - replace with API call
-  useEffect(() => {
-    setTimeout(() => {
-      setHotspots([
-        {
-          latitude: -30.0346,
-          longitude: -51.2177,
-          observation_count: 45,
-          suspicion_count: 12,
-          unique_plates: 28,
-          radius_meters: 500,
-          intensity_score: 0.85,
-        },
-        {
-          latitude: -30.0450,
-          longitude: -51.2300,
-          observation_count: 32,
-          suspicion_count: 8,
-          unique_plates: 19,
-          radius_meters: 500,
-          intensity_score: 0.65,
-        },
-        {
-          latitude: -30.0250,
-          longitude: -51.2050,
-          observation_count: 28,
-          suspicion_count: 15,
-          unique_plates: 22,
-          radius_meters: 500,
-          intensity_score: 0.72,
-        },
-      ]);
+  const loadHotspots = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const now = new Date();
+      const start = new Date(now.getTime() - filters.days * 24 * 60 * 60 * 1000);
+      const response: HotspotAnalysisResult = await hotspotsApi.analyze({
+        start_date: start.toISOString(),
+        end_date: now.toISOString(),
+        cluster_radius_meters: filters.clusterRadius,
+        min_points_per_cluster: filters.minPoints,
+      });
+      setHotspots(response.hotspots);
+    } catch (err) {
+      console.error(err);
+      setError("Nao foi possivel carregar hotspots reais.");
+      setHotspots([]);
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
+  };
+
+  useEffect(() => {
+    void loadHotspots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleAnalyze = async () => {
-    setLoading(true);
-    // Replace with actual API call
-    // const response = await fetch('/api/intelligence/hotspots/analyze', { ... });
-    setTimeout(() => setLoading(false), 1000);
+    await loadHotspots();
   };
 
   useEffect(() => {
@@ -204,6 +194,12 @@ export default function HotspotsPage() {
             </div>
           </div>
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-500/40 bg-red-900/20 p-3 text-xs text-red-200">
+            {error}
+          </div>
+        )}
 
         {/* Hotspots List */}
         <div>

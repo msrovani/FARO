@@ -46,6 +46,35 @@ Pendente:
 - integracao frontend com endpoints reais (substituir mock data)
 - criacao de endpoints para ConvoyEvents e RoamingEvents no backend
 
+## Simulação de Dados (Testes de Carga)
+
+**Total de Dados Simulados:** ~768,000 registros
+
+**Breakdown:**
+- VehicleObservation: 536,941
+- ImpossibleTravelEvent: 38,632
+- WatchlistHit: 37,000
+- ConvoyEvent: 37,059
+- RouteAnomalyEvent: 37,000
+- RoamingEvent: 37,000
+- SensitiveAssetRecurrenceEvent: 36,900
+- WatchlistEntry: 4,779
+- RouteRegionOfInterest: 1,855
+- SensitiveAssetZone: 1,855
+
+**Configuração de Teste:**
+- 100 eventos por algoritmo por rodada
+- 5,000 observações mobile por rodada com lotes alternados (10, 50, 100, 200, etc.)
+- Processamento em batches dinâmicos com estratégia adaptativa
+- 0% taxa de erro em 271+ rodadas
+- Latência média: ~14.46s por rodada (5,600 operações)
+
+**Estratégia Adaptativa Implementada:**
+- 4 modos de inserção (BATCH, PARALLEL_BATCH, COPY, INDIVIDUAL)
+- Gatilhos dinâmicos baseados em congestionamento do banco, taxa de erro e latência
+- Batch sizing dinâmico (10-200 itens)
+- Monitoramento em tempo real de conexões ativas e queries bloqueadas
+
 ## Estrutura
 
 - `mobile-agent-field/`
@@ -60,12 +89,3 @@ Pendente:
 
 - [Memoria tecnica consolidada](./openmemory.md)
 - [Indice de documentacao](./docs/README.md)
-
-## Validacao executada recentemente
-
-- `npm run type-check` em `web-intelligence-console` (OK)
-
-Limitacoes de ambiente desta sessao:
-
-- `npm run build` no web com falha `spawn EPERM`
-- runtime Python e Java/Gradle indisponiveis para validacoes locais completas

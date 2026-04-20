@@ -102,3 +102,10 @@ build/
 dist/
 target/
 out/
+
+# Installed binaries (Windows)
+prometheus/prometheus-*/
+pgbouncer/pgbouncer-*/
+
+# Binary archives
+*.zip

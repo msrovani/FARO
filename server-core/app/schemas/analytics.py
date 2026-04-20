@@ -14,6 +14,7 @@ from app.db.base import (
     AnalystDecision,
     AnalystReviewStatus,
     CaseStatus,
+    CaseLinkType,
 )
 from app.schemas.observation import VehicleObservationResponse
 from app.schemas.suspicion import SuspicionReportResponse
@@ -103,6 +104,25 @@ class IntelligenceCaseResponse(BaseModel):
     created_by_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class CaseLinkCreate(BaseModel):
+    link_type: CaseLinkType
+    linked_entity_id: UUID
+    linked_label: Optional[str] = Field(None, max_length=255)
+
+
+class CaseLinkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    case_id: UUID
+    link_type: CaseLinkType
+    linked_entity_id: UUID
+    linked_label: Optional[str] = None
+    created_by: UUID
+    created_by_name: Optional[str] = None
+    created_at: datetime
 
 
 class AnalystReviewCreateRequest(BaseModel):

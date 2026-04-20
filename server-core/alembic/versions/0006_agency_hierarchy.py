@@ -16,64 +16,75 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Create agencytype enum
-    agencytype_enum = postgresql.ENUM(
-        "local",
-        "regional",
-        "central",
-        name="agencytype",
-        create_type=True,
-    )
-    agencytype_enum.create(op.get_bind())
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    
+    # Verificar se o enum agencytype já existe
+    existing_types = inspector.get_enums()
+    existing_type_names = [e['name'] for e in existing_types]
+    
+    if 'agencytype' not in existing_type_names:
+        # Create agencytype enum
+        agencytype_enum = postgresql.ENUM(
+            "local",
+            "regional",
+            "central",
+            name="agencytype",
+            create_type=True,
+        )
+        agencytype_enum.create(op.get_bind())
 
-    # Add type column to agency
-    op.add_column(
-        "agency",
-        sa.Column(
-            "type",
-            agencytype_enum,
-            nullable=False,
-            server_default="local",
-        ),
-    )
+    # Verificar colunas da tabela agency
+    agency_columns = [col['name'] for col in inspector.get_columns('agency')]
+    
+    # Add type column to agency se não existir
+    if 'type' not in agency_columns:
+        op.add_column(
+            "agency",
+            sa.Column(
+                "type",
+                postgresql.ENUM(name="agencytype", create_constraint=True),
+                nullable=True,  # Temporariamente nullable para evitar erro
+            ),
+        )
+        op.execute("UPDATE agency SET type = 'local' WHERE type IS NULL")
+        op.alter_column("agency", "type", nullable=False)
 
-    # Add parent_agency_id column to agency
-    op.add_column(
-        "agency",
-        sa.Column(
-            "parent_agency_id",
-            postgresql.UUID(as_uuid=True),
-            nullable=True,
-        ),
-    )
+    # Add parent_agency_id column to agency se não existir
+    if 'parent_agency_id' not in agency_columns:
+        op.add_column(
+            "agency",
+            sa.Column(
+                "parent_agency_id",
+                postgresql.UUID(as_uuid=True),
+                nullable=True,
+            ),
+        )
 
-    # Create index on parent_agency_id
-    op.create_index(
-        "ix_agency_parent_agency_id",
-        "agency",
-        ["parent_agency_id"],
-        unique=False,
-    )
+    # Create index on parent_agency_id se não existir
+    agency_indexes = [idx['name'] for idx in inspector.get_indexes('agency')]
+    if 'ix_agency_parent_agency_id' not in agency_indexes:
+        op.create_index(
+            "ix_agency_parent_agency_id",
+            "agency",
+            ["parent_agency_id"],
+            unique=False,
+        )
 
-    # Create foreign key constraint
-    op.create_foreign_key(
-        "fk_agency_parent_agency_id",
-        "agency",
-        "agency",
-        ["parent_agency_id"],
-        ["id"],
-    )
+    # Create foreign key constraint se não existir
+    # Verificar se o constraint já existe
+    existing_constraints = [c['name'] for c in inspector.get_foreign_keys('agency')]
+    if 'fk_agency_parent_agency' not in existing_constraints:
+        op.create_foreign_key(
+            "fk_agency_parent_agency",
+            "agency",
+            "agency",
+            ["parent_agency_id"],
+            ["id"],
+        )
 
     # Set default values for existing agencies
-    op.execute(
-        sa.text(
-            """
-            UPDATE agency
-            SET type = 'local'
-            WHERE type IS NULL
-            """
-        )
-    )
+    # Não necessário pois migration 0001 já cria com valor default
 
 
 def downgrade() -> None:

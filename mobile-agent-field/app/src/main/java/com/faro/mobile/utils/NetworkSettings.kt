@@ -21,6 +21,7 @@ class NetworkSettings private constructor(context: Context) {
         private const val KEY_TRUSTED_SSIDS = "trusted_ssids"
         private const val KEY_SYNC_TTL_DAYS = "sync_ttl_days"
         private const val KEY_HEAVY_DATA_THRESHOLD_MB = "heavy_data_threshold_mb"
+        private const val KEY_PUBLIC_WIFI_SYNC_ENABLED = "public_wifi_sync_enabled"
         
         @Volatile
         private var instance: NetworkSettings? = null
@@ -43,6 +44,21 @@ class NetworkSettings private constructor(context: Context) {
         } catch (e: Exception) {
             getDefaultTrustedSsids()
         }
+    }
+    
+    /**
+     * Check if sync on public WiFi is enabled.
+     * Default: false (more secure).
+     */
+    fun isPublicWifiSyncEnabled(): Boolean {
+        return prefs.getBoolean(KEY_PUBLIC_WIFI_SYNC_ENABLED, false)
+    }
+    
+    /**
+     * Set public WiFi sync enabled.
+     */
+    fun setPublicWifiSyncEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_PUBLIC_WIFI_SYNC_ENABLED, enabled).apply()
     }
     
     /**

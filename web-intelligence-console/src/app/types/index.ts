@@ -19,14 +19,10 @@ export type ReviewStatus = 'pending' | 'confirmed' | 'discarded' | 'monitoring';
 export type AlertType = 'instant' | 'pattern' | 'recurrence' | 'correlation';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 export type SyncStatus = 'pending' | 'syncing' | 'completed' | 'failed';
-export type WatchlistStatus = 'active' | 'suspended' | 'expired' | 'closed';
-export type WatchlistCategory =
-  | 'suspect_vehicle'
-  | 'monitored_vehicle'
-  | 'case_related'
-  | 'possible_clone'
-  | 'partial_plate'
-  | 'visual_only';
+export type WatchlistStatus = 'active' | 'inactive' | 'archived';
+export type WatchlistCategory = 'stolen' | 'suspicious' | 'wanted' | 'monitoring';
+export type CaseStatus = 'open' | 'monitoring' | 'escalated' | 'closed';
+export type CaseLinkType = 'observation' | 'watchlist' | 'score' | 'occurrence' | 'vehicle';
 export type AnalystReviewStatus = 'draft' | 'final' | 'rectified' | 'supervisor_review';
 export type AnalystConclusion = 'improcedente' | 'fraca' | 'moderada' | 'relevante' | 'critica';
 export type AnalystDecision =
@@ -77,8 +73,11 @@ export interface User {
   id: string;
   email: string;
   full_name: string;
+  cpf?: string;
   badge_number?: string;
   role: UserRole;
+  agency_id?: string;
+  agency_name?: string;
   unit_id?: string;
   unit_name?: string;
   is_active: boolean;
@@ -248,10 +247,66 @@ export interface RoutePattern {
   primary_corridor_name?: string;
   predominant_direction?: number;
   recurrence_score: number;
-  pattern_strength: 'weak' | 'moderate' | 'strong';
-  common_hours: number[];
-  common_days: number[];
-  analyzed_at: string;
+  pattern_strength?: 'weak' | 'moderate' | 'strong';
+  common_hours?: number[];
+  common_days?: number[];
+  analyzed_at?: string;
+}
+
+export interface WatchlistEntry {
+  id: string;
+  created_by: string;
+  created_by_name?: string;
+  status: WatchlistStatus;
+  category: WatchlistCategory;
+  plate_number?: string;
+  plate_partial?: string;
+  vehicle_make?: string;
+  vehicle_model?: string;
+  vehicle_color?: string;
+  visual_traits?: string;
+  interest_reason: string;
+  information_source?: string;
+  sensitivity_level: string;
+  confidence_level?: string;
+  geographic_scope?: string;
+  active_time_window?: string;
+  priority: number;
+  recommended_action?: string;
+  silent_mode: boolean;
+  notes?: string;
+  valid_from?: string;
+  valid_until?: string;
+  review_due_at?: string;
+  metadata_json?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IntelligenceCase {
+  id: string;
+  title: string;
+  hypothesis?: string;
+  summary?: string;
+  status: CaseStatus;
+  sensitivity_level: string;
+  priority: number;
+  review_due_at?: string;
+  created_by: string;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaseLink {
+  id: string;
+  case_id: string;
+  link_type: CaseLinkType;
+  linked_entity_id: string;
+  linked_label?: string;
+  created_by: string;
+  created_by_name?: string;
+  created_at: string;
 }
 
 export interface DashboardStats {
@@ -492,6 +547,8 @@ export interface ApiError {
   message: string;
   code?: string;
   timestamp: string;
+  connection_error?: string;
+  retry_after?: number;
 }
 
 export interface Device {

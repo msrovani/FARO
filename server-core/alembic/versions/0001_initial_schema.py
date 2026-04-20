@@ -17,6 +17,10 @@ def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
     bind = op.get_bind()
     Base.metadata.create_all(bind=bind, checkfirst=True)
+    
+    # Alterar coluna type da tabela agency para permitir NULL temporariamente
+    # O enum agencytype só será criado na migration 0006
+    op.execute("ALTER TABLE agency ALTER COLUMN type DROP NOT NULL")
 
 
 def downgrade() -> None:

@@ -2,12 +2,14 @@
 
 import { FormEvent, ReactNode, Suspense, useCallback, useEffect, useMemo, useState, useTransition, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { Clock3, MapPinned, ShieldAlert, Waypoints, Navigation2, Car, PaintBucket, Smartphone, WifiRouter, ShieldClose, TriangleAlert, ShieldCheck } from "lucide-react";
+import { Clock3, MapPinned, ShieldAlert, Waypoints, Navigation2, Car, PaintBucket, Smartphone, Wifi, ShieldClose, TriangleAlert, ShieldCheck } from "lucide-react";
 import { Marker } from "react-map-gl";
 import MapBase from "@/app/components/map/MapBase";
 
 import { ConsoleShell } from "@/app/components/console-shell";
-import { intelligenceApi } from "@/app/services/api";
+import { PlateImage } from "@/app/components/PlateImage";
+import { EvidenceGallery } from "@/app/components/EvidenceGallery";
+import { intelligenceApi, getPlateImageUrl, getEvidenceUrls } from "@/app/services/api";
 import {
   AnalystConclusion,
   AnalystDecision,
@@ -411,6 +413,20 @@ function QueueContent() {
                     }
                   />
                 </div>
+
+                {/* Plate Image */}
+                {selectedObservation.plate_reads[0] && (
+                  <div className="mt-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Imagem da Placa</div>
+                    <PlateImage
+                      imageUrl={getPlateImageUrl(selectedObservation.plate_reads[0])}
+                      plateNumber={selectedObservation.plate_reads[0].ocr_raw_text}
+                      confidence={selectedObservation.plate_reads[0].ocr_confidence}
+                      size="lg"
+                      className="w-full"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* SECTION: Kinematic Map */}
@@ -480,7 +496,7 @@ function QueueContent() {
                     Versão App: <span className="font-medium text-slate-900">{(selectedObservation.metadata_snapshot as any)?.app_version || "N/A"}</span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
-                    <WifiRouter className="h-4 w-4" />
+                    <Wifi className="h-4 w-4" />
                     Rede: <span className="font-medium text-slate-900">{(selectedObservation.metadata_snapshot as any)?.network_type || "N/A"}</span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
@@ -529,6 +545,14 @@ function QueueContent() {
                       <div className="bg-white border border-slate-200 rounded-xl p-3 text-sm text-slate-700 italic">
                         "{selectedObservation.suspicion_report.notes || selectedObservation.suspicion_report.texto_ocorrencia || "Sem relato descritivo do agente."}"
                       </div>
+                    </div>
+                  )}
+
+                  {/* Evidence Gallery */}
+                  {(selectedObservation.suspicion_report.image_url || selectedObservation.suspicion_report.audio_url) && (
+                    <div className="mt-5">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Evidências Anexadas</div>
+                      <EvidenceGallery items={getEvidenceUrls(selectedObservation.suspicion_report)} />
                     </div>
                   )}
                 </div>

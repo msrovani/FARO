@@ -22,6 +22,13 @@ const nextConfig = {
   env: {
     API_URL: process.env.API_URL || 'http://localhost:8000',
   },
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'mapbox-gl': 'maplibre-gl',
+    };
+    return config;
+  },
   async rewrites() {
     return [
       {

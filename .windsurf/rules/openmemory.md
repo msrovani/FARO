@@ -13,7 +13,7 @@ entire session.
 
 Memory = accumulated understanding of codebase + user preferences. Like a colleague who's worked here months.
 
-**project_id:** FARO
+**project_id:** goeesdiegoo-pixel/faro-bmrs
 
 ## NON-NEGOTIABLE: Memory-First Development
 

@@ -26,6 +26,7 @@ from app.schemas.user import (
     AgentLocationUpdate,
     UserLogin,
     UserCreate,
+    UserUpdate,
     UserResponse,
     Token,
     TokenRefresh,
@@ -42,34 +43,34 @@ security = HTTPBearer(auto_error=False)
 # =============================================================================
 # Esta seção prepara a integração com sistemas de autenticação externos.
 # POR ENQUANTO: Autenticação local via CPF/email + senha no banco FARO.
-# 
+#
 # ROADMAP DE INTEGRAÇÃO:
 # -----------------------------------------------------------------------------
-# 
+#
 # 1. GOV.BR (SSO Federal) - PRIORIDADE ALTA
 #    - Implementar OAuth2/OIDC com gov.br
 #    - Validar CPF via token gov.br
 #    - Criar adapter: app/integrations/govbr_auth_adapter.py
 #    - Endpoint: https://sso.acesso.gov.br/
 #    - Necessário: Cadastro do FARO como aplicação no gov.br
-# 
-# 2. SISTEMA INTERNO BMRS (RH/Pessoal) - PRIORIDADE ALTA  
+#
+# 2. SISTEMA INTERNO BMRS (RH/Pessoal) - PRIORIDADE ALTA
 #    - Integrar com sistema de pessoal da BMRS
 #    - Validar matrícula, CPF, unidade lotação, status ativo
 #    - Criar adapter: app/integrations/bmrs_hr_adapter.py
 #    - Dados necessários: Endpoint interno, credenciais, certificado
 #    - Verificar: Se policial está ativo, afastado, férias, etc.
-# 
+#
 # 3. SIGMIL (Sistema de Identidade Militar) - PRIORIDADE MÉDIA
 #    - Integrar com SIGMIL se disponível
 #    - Validar credencial militar
 #    - Criar adapter: app/integrations/sigmil_adapter.py
-# 
+#
 # 4. CONSULTA BÁSICA RECEITA FEDERAL - PRIORIDADE BAIXA
 #    - Validar existência do CPF na Receita
 #    - Usar CPF para confirmar dados básicos
 #    - Criar adapter: app/integrations/receita_adapter.py
-# 
+#
 # IMPLEMENTAÇÃO:
 # -----------------------------------------------------------------------------
 # Para ativar, descomentar a função abaixo e implementar os adapters.
@@ -83,22 +84,22 @@ security = HTTPBearer(auto_error=False)
 #   4. Se sucesso: autentica no FARO com dados da base oficial
 #   5. Se falha: recusa acesso ou redireciona para registro manual
 # =============================================================================
-# 
+#
 # async def verify_with_intelligence_db(cpf: str, badge_number: str) -> Optional[dict]:
 #     """
 #     Verify user credentials against external intelligence database.
-#     
+#
 #     IMPLEMENTATION CHECKLIST FOR NEXT DEVELOPER:
-#     
+#
 #     [ ] Criar arquivo app/integrations/govbr_auth_adapter.py
-#     [ ] Criar arquivo app/integrations/bmrs_hr_adapter.py  
+#     [ ] Criar arquivo app/integrations/bmrs_hr_adapter.py
 #     [ ] Configurar variáveis de ambiente no .env:
 #         - GOVBR_CLIENT_ID, GOVBR_CLIENT_SECRET
 #         - BMRS_HR_ENDPOINT, BMRS_HR_API_KEY
 #     [ ] Implementar retry logic e circuit breaker
 #     [ ] Adicionar testes de integração (mock)
 #     [ ] Documentar no onboarding.md
-#     
+#
 #     Args:
 #         cpf: Brazilian CPF (11 digits, cleaned)
 #         badge_number: Police badge number (optional)
@@ -118,7 +119,7 @@ security = HTTPBearer(auto_error=False)
 #         None if invalid or not found
 #     """
 #     # IMPLEMENTATION EXAMPLE:
-#     # 
+#     #
 #     # # Try BMRS HR system first (internal)
 #     # from app.integrations.bmrs_hr_adapter import verify_with_bmrs_hr
 #     # result = await verify_with_bmrs_hr(cpf=cpf, badge_number=badge_number)
@@ -140,6 +141,9 @@ async def build_user_response(db: AsyncSession, user: User) -> UserResponse:
     unit_name: Optional[str] = None
     agency_name: Optional[str] = None
 
+    # Refresh user to ensure all attributes are loaded
+    await db.refresh(user)
+
     # NOTE: explicit queries avoid lazy-loading surprises on async sessions.
     if user.unit_id:
         unit = (
@@ -152,12 +156,29 @@ async def build_user_response(db: AsyncSession, user: User) -> UserResponse:
         ).scalar_one_or_none()
         agency_name = agency.name if agency is not None else None
 
-    return UserResponse.model_validate(user).model_copy(
-        update={
-            "unit_name": unit_name,
-            "agency_name": agency_name,
-        }
-    )
+    try:
+        return UserResponse.model_construct(
+            id=user.id,
+            cpf=user.cpf,
+            email=user.email,
+            full_name=user.full_name,
+            badge_number=user.badge_number,
+            role=user.role,
+            agency_id=user.agency_id,
+            agency_name=agency_name,
+            unit_id=user.unit_id,
+            unit_name=unit_name,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+            last_login=user.last_login,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+        )
+    except Exception as e:
+        import traceback
+        print(f"Error building user response: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        raise
 
 
 async def get_current_user(
@@ -235,23 +256,34 @@ async def login(
 ):
     """Authenticate user using email or CPF, with optional intelligence DB verification."""
 
-    # Determine if identifier is CPF (11 digits) or email
-    identifier = login_data.identifier.replace(".", "").replace("-", "")
-    is_cpf = len(identifier) == 11 and identifier.isdigit()
+    try:
+        # Determine if identifier is CPF (11 digits) or email
+        identifier = login_data.identifier.replace(".", "").replace("-", "")
+        is_cpf = len(identifier) == 11 and identifier.isdigit()
 
-    # Build query based on identifier type
-    if is_cpf:
-        # Authenticate by CPF
-        # TODO: Uncomment the following line when ready to use intelligence DB verification
-        # user_info = await verify_with_intelligence_db(identifier, login_data.badge_number)
-        result = await db.execute(select(User).where(User.cpf == identifier))
-    else:
-        # Authenticate by email
-        result = await db.execute(
-            select(User).where(User.email == login_data.identifier)
+        # Build query based on identifier type
+        if is_cpf:
+            # Authenticate by CPF
+            # TODO: Uncomment the following line when ready to use intelligence DB verification
+            # user_info = await verify_with_intelligence_db(identifier, login_data.badge_number)
+            result = await db.execute(
+                select(User).where(User.cpf == identifier)
+            )
+        else:
+            # Authenticate by email
+            result = await db.execute(
+                select(User).where(User.email == login_data.identifier)
+            )
+
+        user = result.scalar_one_or_none()
+    except Exception as e:
+        import traceback
+        print(f"Error during login query: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}"
         )
-
-    user = result.scalar_one_or_none()
 
     if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
@@ -272,8 +304,10 @@ async def login(
     # Handle Shift Duration (On Duty status)
     if login_data.shift_duration_hours and login_data.shift_duration_hours > 0:
         user.is_on_duty = True
-        user.service_expires_at = datetime.utcnow() + timedelta(hours=login_data.shift_duration_hours)
-        
+        user.service_expires_at = datetime.utcnow() + timedelta(
+            hours=login_data.shift_duration_hours
+        )
+
         # Log duty start for audit
         await log_audit_event(
             db,
@@ -284,7 +318,7 @@ async def login(
             details={
                 "duration_hours": login_data.shift_duration_hours,
                 "expires_at": user.service_expires_at.isoformat(),
-            }
+            },
         )
     else:
         # If no duration provided (e.g. intelligence console), keep current status or set off duty
@@ -440,7 +474,7 @@ async def logout(
 ):
     """Logout user (client-side token removal)."""
     # In a more complex setup, we could blacklist tokens here
-    return {"message": "Successfully logged out"}
+    return {"message": "Logout realizado com sucesso"}
 
 
 @router.post("/password/change")
@@ -485,7 +519,7 @@ async def list_users(
 ):
     """
     List users with optional filters by role and agency.
-    
+
     RBAC:
     - ADMIN: Can see all users
     - SUPERVISOR: Can see users in their agency
@@ -494,10 +528,12 @@ async def list_users(
     - FIELD_AGENT: Cannot list users (access denied)
     """
     if current_user.role == UserRole.FIELD_AGENT:
-        raise HTTPException(status_code=403, detail="Campo agents não podem listar usuários")
-    
+        raise HTTPException(
+            status_code=403, detail="Campo agents não podem listar usuários"
+        )
+
     query = select(User).where(User.is_active == True)
-    
+
     # Filter by role if specified
     if role:
         try:
@@ -505,7 +541,7 @@ async def list_users(
             query = query.where(User.role == role_enum)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
-    
+
     # Apply agency hierarchy filtering
     if current_user.role == UserRole.ADMIN:
         # ADMIN can see all agencies, optionally filter by agency_id
@@ -516,14 +552,14 @@ async def list_users(
         # For now, simple filter - user sees their own agency users
         # TODO: Implement full hierarchy filtering (child agencies for regional/central)
         query = query.where(User.agency_id == current_user.agency_id)
-    
+
     # Pagination
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size)
-    
+
     result = await db.execute(query)
     users = result.scalars().all()
-    
+
     # Get total count
     count_query = select(func.count(User.id))
     if role:
@@ -532,10 +568,10 @@ async def list_users(
         count_query = count_query.where(User.agency_id == current_user.agency_id)
     elif agency_id:
         count_query = count_query.where(User.agency_id == agency_id)
-    
+
     total_result = await db.execute(count_query)
     total = total_result.scalar()
-    
+
     return {
         "users": [await build_user_response(db, user) for user in users],
         "total": total,
@@ -552,7 +588,7 @@ async def create_user(
 ):
     """
     Create a new user.
-    
+
     RBAC:
     - ADMIN: Can create users in any agency
     - SUPERVISOR: Can create users in their agency
@@ -561,23 +597,29 @@ async def create_user(
     - FIELD_AGENT: Cannot create users (access denied)
     """
     if current_user.role == UserRole.FIELD_AGENT:
-        raise HTTPException(status_code=403, detail="Campo agents não podem criar usuários")
-    
+        raise HTTPException(
+            status_code=403, detail="Campo agents não podem criar usuários"
+        )
+
     # Check if user can create users in the target agency
-    if current_user.role != UserRole.ADMIN and user_data.agency_id != current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para criar usuário nesta agência")
-    
+    if (
+        current_user.role != UserRole.ADMIN
+        and user_data.agency_id != current_user.agency_id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Sem permissão para criar usuário nesta agência"
+        )
+
     # Check if email already exists
-    existing_user = await db.execute(
-        select(User).where(User.email == user_data.email)
-    )
+    existing_user = await db.execute(select(User).where(User.email == user_data.email))
     if existing_user.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email já cadastrado")
-    
+
     # Hash password
     from app.core.security import get_password_hash
+
     hashed_password = get_password_hash(user_data.password)
-    
+
     # Create user
     new_user = User(
         email=user_data.email,
@@ -589,11 +631,11 @@ async def create_user(
         agency_id=user_data.agency_id,
         unit_id=user_data.unit_id,
     )
-    
+
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
-    
+
     return await build_user_response(db, new_user)
 
 
@@ -606,7 +648,7 @@ async def update_user(
 ):
     """
     Update a user.
-    
+
     RBAC:
     - ADMIN: Can update any user
     - SUPERVISOR: Can update users in their agency
@@ -614,29 +656,34 @@ async def update_user(
     - FIELD_AGENT: Cannot update users (access denied)
     """
     if current_user.role == UserRole.FIELD_AGENT:
-        raise HTTPException(status_code=403, detail="Campo agents não podem atualizar usuários")
-    
+        raise HTTPException(
+            status_code=403, detail="Campo agents não podem atualizar usuários"
+        )
+
     # Get user to update
-    user_to_update = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    user_to_update = await db.execute(select(User).where(User.id == user_id))
     user_to_update = user_to_update.scalar_one_or_none()
-    
+
     if not user_to_update:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
+
     # Check if user can update this user
-    if current_user.role != UserRole.ADMIN and user_to_update.agency_id != current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para atualizar este usuário")
-    
+    if (
+        current_user.role != UserRole.ADMIN
+        and user_to_update.agency_id != current_user.agency_id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Sem permissão para atualizar este usuário"
+        )
+
     # Update fields
     update_data = user_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(user_to_update, field, value)
-    
+
     await db.commit()
     await db.refresh(user_to_update)
-    
+
     return await build_user_response(db, user_to_update)
 
 
@@ -648,7 +695,7 @@ async def delete_user(
 ):
     """
     Delete a user (soft delete by setting is_active=False).
-    
+
     RBAC:
     - ADMIN: Can delete any user
     - SUPERVISOR: Can delete users in their agency
@@ -656,23 +703,28 @@ async def delete_user(
     - FIELD_AGENT: Cannot delete users (access denied)
     """
     if current_user.role == UserRole.FIELD_AGENT:
-        raise HTTPException(status_code=403, detail="Campo agents não podem deletar usuários")
-    
+        raise HTTPException(
+            status_code=403, detail="Campo agents não podem deletar usuários"
+        )
+
     # Get user to delete
-    user_to_delete = await db.execute(
-        select(User).where(User.id == user_id)
-    )
+    user_to_delete = await db.execute(select(User).where(User.id == user_id))
     user_to_delete = user_to_delete.scalar_one_or_none()
-    
+
     if not user_to_delete:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
+
     # Check if user can delete this user
-    if current_user.role != UserRole.ADMIN and user_to_delete.agency_id != current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Sem permissão para deletar este usuário")
-    
+    if (
+        current_user.role != UserRole.ADMIN
+        and user_to_delete.agency_id != current_user.agency_id
+    ):
+        raise HTTPException(
+            status_code=403, detail="Sem permissão para deletar este usuário"
+        )
+
     # Soft delete
     user_to_delete.is_active = False
     await db.commit()
-    
+
     return None
