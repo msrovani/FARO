@@ -7,7 +7,7 @@ services:
     container_name: faro-postgres
     environment:
       POSTGRES_USER: faro
-      POSTGRES_PASSWORD: faro_secret
+      POSTGRES_PASSWORD: CHANGE_ME_IN_PRODUCTION
       POSTGRES_DB: faro_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -52,7 +52,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_PASSWORD: CHANGE_ME_IN_PRODUCTION
     volumes:
       - minio_data:/data
     ports:
@@ -73,7 +73,7 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc config host add myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc config host add myminio http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD;
       /usr/bin/mc mb myminio/faro-assets || true;
       /usr/bin/mc policy set public myminio/faro-assets || true;
       exit 0;
@@ -97,7 +97,7 @@ services:
       - REDIS_CACHE_URL=redis://redis:6379/2
       - S3_ENDPOINT=http://minio:9000
       - S3_ACCESS_KEY=minioadmin
-      - S3_SECRET_KEY=minioadmin
+      - S3_SECRET_KEY=CHANGE_ME_IN_PRODUCTION
       - S3_BUCKET_NAME=faro-assets
       - S3_SECURE=false
       - SECRET_KEY=CHANGE_ME_IN_PRODUCTION_32CHARS_MINIMUM
@@ -203,7 +203,7 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=CHANGE_ME_IN_PRODUCTION
     volumes:
       - grafana_data:/var/lib/grafana
       - ../observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro

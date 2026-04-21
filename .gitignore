@@ -4,6 +4,7 @@ AGENTS.md
 .agent/
 .antigravity/
 _opensquad/
+.gemini/
 
 # Python
 __pycache__/
@@ -85,6 +86,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+pgbouncer/userlist.txt
 
 # Logs
 *.log

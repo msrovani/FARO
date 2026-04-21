@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     process_pool_io_bound_workers: int = Field(default="auto")  # For I/O-intensive tasks
     
     # Security
-    secret_key: str = Field(default="CHANGE_ME_IN_PRODUCTION_32CHARS_MIN")
+    secret_key: str = Field(default="")
     algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=30)
     refresh_token_expire_days: int = Field(default=7)
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     cors_allow_headers: List[str] = Field(default=["*"])
     
     # Database - PostgreSQL with PostGIS
-    database_url: str = Field(default="postgresql+asyncpg://faro:faro@localhost:5432/faro_db")
+    database_url: str = Field(default="postgresql+asyncpg://faro:CHANGE_ME@localhost:5432/faro_db")
     database_echo: bool = Field(default=False)
     database_pool_size: int = Field(default=20)
     database_max_overflow: int = Field(default=10)
@@ -89,8 +89,8 @@ class Settings(BaseSettings):
     # Se s3_enabled=False, usa fallback para armazenamento local
     s3_enabled: bool = Field(default=False)  # MinIO opcional - usa local storage se False
     s3_endpoint: str = Field(default="http://localhost:9000")
-    s3_access_key: str = Field(default="minioadmin")
-    s3_secret_key: str = Field(default="minioadmin")
+    s3_access_key: str = Field(default="")
+    s3_secret_key: str = Field(default="")
     s3_bucket_name: str = Field(default="faro-assets")
     s3_region: str = Field(default="us-east-1")
     s3_secure: bool = Field(default=False)
@@ -198,6 +198,8 @@ class Settings(BaseSettings):
     def validate_secret_key(cls, v):
         if len(v) < 32:
             raise ValueError("Secret key must be at least 32 characters")
+        if v == "":
+            raise ValueError("Secret key must be set in environment variables")
         return v
     
     @property
