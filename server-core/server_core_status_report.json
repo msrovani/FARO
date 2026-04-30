@@ -1,0 +1,349 @@
+{
+  "timestamp": "2026-04-29T03:15:31.093339",
+  "server_core_path": "c:\\Users\\msrov\\OneDrive\\Área de Trabalho\\FARO\\server-core",
+  "structure": {
+    "app": true,
+    "app/api": true,
+    "app/api/v1": true,
+    "app/api/v1/endpoints": true,
+    "app/services": true,
+    "app/db": true,
+    "app/core": true,
+    "app/schemas": true
+  },
+  "endpoints": {
+    "agents": {
+      "file_exists": true,
+      "router_count": 4,
+      "endpoint_count": 4,
+      "file_size": 12377
+    },
+    "alerts": {
+      "file_exists": true,
+      "router_count": 11,
+      "endpoint_count": 10,
+      "file_size": 10693
+    },
+    "alert_history": {
+      "file_exists": true,
+      "router_count": 6,
+      "endpoint_count": 6,
+      "file_size": 6406
+    },
+    "assets": {
+      "file_exists": true,
+      "router_count": 2,
+      "endpoint_count": 1,
+      "file_size": 4976
+    },
+    "audit": {
+      "file_exists": true,
+      "router_count": 7,
+      "endpoint_count": 7,
+      "file_size": 10458
+    },
+    "auth": {
+      "file_exists": true,
+      "router_count": 9,
+      "endpoint_count": 9,
+      "file_size": 24697
+    },
+    "boletim_atendimento": {
+      "file_exists": true,
+      "router_count": 4,
+      "endpoint_count": 4,
+      "file_size": 5811
+    },
+    "devices": {
+      "file_exists": true,
+      "router_count": 2,
+      "endpoint_count": 1,
+      "file_size": 2048
+    },
+    "documentation": {
+      "file_exists": true,
+      "router_count": 10,
+      "endpoint_count": 10,
+      "file_size": 12311
+    },
+    "hotspots": {
+      "file_exists": true,
+      "router_count": 3,
+      "endpoint_count": 3,
+      "file_size": 4474
+    },
+    "intelligence": {
+      "file_exists": true,
+      "router_count": 42,
+      "endpoint_count": 38,
+      "file_size": 87988
+    },
+    "location_interception": {
+      "file_exists": true,
+      "router_count": 3,
+      "endpoint_count": 3,
+      "file_size": 7226
+    },
+    "mobile": {
+      "file_exists": true,
+      "router_count": 17,
+      "endpoint_count": 17,
+      "file_size": 59684
+    },
+    "monitoring": {
+      "file_exists": true,
+      "router_count": 3,
+      "endpoint_count": 3,
+      "file_size": 10930
+    },
+    "route_prediction": {
+      "file_exists": true,
+      "router_count": 4,
+      "endpoint_count": 4,
+      "file_size": 5031
+    },
+    "suspicious_routes": {
+      "file_exists": true,
+      "router_count": 7,
+      "endpoint_count": 7,
+      "file_size": 8317
+    },
+    "websocket": {
+      "file_exists": true,
+      "router_count": 3,
+      "endpoint_count": 1,
+      "file_size": 6101
+    }
+  },
+  "services": {
+    "agency_hierarchy_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 6,
+      "classes": 0,
+      "file_size": 5709
+    },
+    "agent_movement_analysis_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 4,
+      "classes": 7,
+      "file_size": 23299
+    },
+    "alert_history_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 7,
+      "classes": 1,
+      "file_size": 7153
+    },
+    "alert_rule_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 8,
+      "classes": 0,
+      "file_size": 9561
+    },
+    "alert_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 6,
+      "classes": 1,
+      "file_size": 11070
+    },
+    "analytics_service": {
+      "file_exists": true,
+      "is_important": true,
+      "async_functions": 14,
+      "classes": 1,
+      "file_size": 41028
+    },
+    "audit_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 1,
+      "classes": 0,
+      "file_size": 708
+    },
+    "ba_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 4,
+      "classes": 0,
+      "file_size": 10745
+    },
+    "cache_service": {
+      "file_exists": true,
+      "is_important": true,
+      "async_functions": 23,
+      "classes": 1,
+      "file_size": 9043
+    },
+    "cache_service_backup": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 30,
+      "classes": 1,
+      "file_size": 12661
+    },
+    "dashboard_metrics_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 7,
+      "classes": 1,
+      "file_size": 7444
+    },
+    "event_bus": {
+      "file_exists": true,
+      "is_important": true,
+      "async_functions": 3,
+      "classes": 1,
+      "file_size": 2286
+    },
+    "feedback_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 2,
+      "classes": 0,
+      "file_size": 3774
+    },
+    "hotspot_analysis_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 4,
+      "classes": 2,
+      "file_size": 13425
+    },
+    "intelligence_mixin": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 0,
+      "classes": 1,
+      "file_size": 373
+    },
+    "intercept_adaptive_service": {
+      "file_exists": true,
+      "is_important": true,
+      "async_functions": 6,
+      "classes": 4,
+      "file_size": 16997
+    },
+    "location_interception_service": {
+      "file_exists": true,
+      "is_important": true,
+      "async_functions": 8,
+      "classes": 1,
+      "file_size": 13759
+    },
+    "observation_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 6,
+      "classes": 0,
+      "file_size": 11419
+    },
+    "ocr_enhancement_service": {
+      "file_exists": true,
+      "is_important": true,
+      "async_functions": 5,
+      "classes": 5,
+      "file_size": 14883
+    },
+    "ocr_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 3,
+      "classes": 3,
+      "file_size": 15140
+    },
+    "operational_context_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 5,
+      "classes": 0,
+      "file_size": 6945
+    },
+    "report_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 4,
+      "classes": 1,
+      "file_size": 5350
+    },
+    "route_analysis_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 4,
+      "classes": 1,
+      "file_size": 17182
+    },
+    "route_prediction_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 4,
+      "classes": 2,
+      "file_size": 7405
+    },
+    "storage_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 0,
+      "classes": 1,
+      "file_size": 9149
+    },
+    "suspicious_route_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 7,
+      "classes": 0,
+      "file_size": 9792
+    },
+    "websocket_service": {
+      "file_exists": true,
+      "is_important": false,
+      "async_functions": 4,
+      "classes": 1,
+      "file_size": 5137
+    }
+  },
+  "database": {
+    "file_exists": true,
+    "models": {
+      "VehicleObservation": true,
+      "InterceptEvent": true,
+      "AgentLocationLog": true,
+      "WatchlistEntry": true,
+      "User": true,
+      "Agency": true
+    },
+    "postgis_imports": true,
+    "file_size": 78729
+  },
+  "routes": {
+    "file_exists": true,
+    "router_includes": 17,
+    "important_routers": {
+      "intelligence.router": true,
+      "agents.router": true,
+      "mobile.router": true,
+      "location_interception.router": true
+    },
+    "file_size": 2514
+  },
+  "main_app": {
+    "file_exists": true,
+    "fastapi_imports": true,
+    "app_creation": false,
+    "config_imports": true,
+    "file_size": 5913
+  },
+  "metrics": {
+    "structure_completion": "8/8 (100.0%)",
+    "endpoint_files": 17,
+    "total_endpoints": 128,
+    "important_services": 6,
+    "database_models": "6/6",
+    "postgis_enabled": true,
+    "ready_for_integration": "98/100"
+  }
+}

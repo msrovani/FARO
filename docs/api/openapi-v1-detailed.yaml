@@ -1,0 +1,1414 @@
+openapi: 3.1.0
+info:
+  title: FARO API
+  version: 1.0.0
+  summary: Especificação detalhada da API v1 implementada
+  description: >
+    Especificação do núcleo funcional atual do backend FARO.
+    Este documento descreve apenas endpoints já existentes no código.
+servers:
+  - url: http://localhost:8000
+    description: Desenvolvimento local
+security:
+  - bearerAuth: []
+tags:
+  - name: Authentication
+  - name: Mobile App
+  - name: Intelligence
+paths:
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Autenticar usuário
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLogin'
+            example:
+              email: agente@faro.local
+              password: "SenhaSegura1"
+              device_id: FARO-DEVICE-07
+              device_model: Galaxy A55
+              os_version: Android 14
+              app_version: 1.0.0
+      responses:
+        '200':
+          description: Login concluído
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Credenciais inválidas
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Renovar token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Novo par de tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Refresh token inválido
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Encerrar sessão
+      responses:
+        '200':
+          description: Sessão encerrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+  /api/v1/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Obter usuário autenticado
+      responses:
+        '200':
+          description: Usuário autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /api/v1/mobile/observations:
+    post:
+      tags: [Mobile App]
+      summary: Criar observação operacional
+      description: >
+        Cria uma observação e aplica idempotência por client_id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VehicleObservationCreate'
+      responses:
+        '200':
+          description: Observação persistida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleObservationResponse'
+        '422':
+          description: Payload inválido
+  /api/v1/mobile/history:
+    get:
+      tags: [Mobile App]
+      summary: Histórico do agente
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Histórico simplificado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationHistoryResponse'
+  /api/v1/mobile/observations/{observation_id}/suspicion:
+    post:
+      tags: [Mobile App]
+      summary: Registrar suspeição estruturada
+      parameters:
+        - $ref: '#/components/parameters/ObservationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SuspicionReportCreate'
+      responses:
+        '200':
+          description: Suspeição registrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuspicionReportResponse'
+        '400':
+          description: Observação já possui suspeição
+        '404':
+          description: Observação não encontrada
+  /api/v1/mobile/observations/{observation_id}/feedback:
+    get:
+      tags: [Mobile App]
+      summary: Consultar feedback da observação
+      parameters:
+        - $ref: '#/components/parameters/ObservationId'
+      responses:
+        '200':
+          description: Lista de feedbacks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeedbackForAgent'
+  /api/v1/mobile/observations/{observation_id}/approach-confirmation:
+    post:
+      tags: [Mobile App]
+      summary: Confirmar abordagem de veiculo e suspeicao
+      description: >
+        Registra resultado da abordagem em campo e, quando existir suspeicao previa,
+        gera retroalimentacao para o agente que abriu a primeira suspeicao da placa.
+      parameters:
+        - $ref: '#/components/parameters/ObservationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproachConfirmationRequest'
+      responses:
+        '200':
+          description: Confirmacao processada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApproachConfirmationResponse'
+        '404':
+          description: Observacao nao encontrada para o agente autenticado
+  /api/v1/mobile/sync/batch:
+    post:
+      tags: [Mobile App]
+      summary: Sincronizar lote offline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncBatchRequest'
+      responses:
+        '200':
+          description: Resultado do processamento do lote
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncBatchResponse'
+  /api/v1/intelligence/queue:
+    get:
+      tags: [Intelligence]
+      summary: Listar fila analítica
+      parameters:
+        - in: query
+          name: plate_number
+          schema:
+            type: string
+        - in: query
+          name: suspicion_level
+          schema:
+            $ref: '#/components/schemas/SuspicionLevel'
+        - in: query
+          name: urgency
+          schema:
+            $ref: '#/components/schemas/UrgencyLevel'
+        - in: query
+          name: reason
+          schema:
+            $ref: '#/components/schemas/SuspicionReason'
+        - in: query
+          name: agent_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: unit_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: date_from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: date_to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Itens não revisados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IntelligenceQueueItem'
+  /api/v1/intelligence/observations/{observation_id}:
+    get:
+      tags: [Intelligence]
+      summary: Obter detalhe da observação
+      parameters:
+        - $ref: '#/components/parameters/ObservationId'
+      responses:
+        '200':
+          description: Detalhe da observação
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleObservationResponse'
+        '404':
+          description: Observação não encontrada
+  /api/v1/intelligence/reviews:
+    post:
+      tags: [Intelligence]
+      summary: Registrar revisão de inteligência
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntelligenceReviewCreate'
+      responses:
+        '200':
+          description: Revisão concluída
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntelligenceReviewResponse'
+        '400':
+          description: Observação já revisada
+        '404':
+          description: Observação não encontrada
+  /api/v1/intelligence/feedback/pending:
+    get:
+      tags: [Intelligence]
+      summary: Listar feedbacks pendentes
+      responses:
+        '200':
+          description: Lista de feedbacks pendentes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeedbackForAgent'
+  /api/v1/intelligence/feedback:
+    post:
+      tags: [Intelligence]
+      summary: Enviar feedback estruturado ao campo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalystFeedbackCreateRequest'
+      responses:
+        '200':
+          description: Feedback criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalystFeedbackResponse'
+        '400':
+          description: Payload invalido
+        '404':
+          description: Observacao ou template nao encontrado
+  /api/v1/intelligence/feedback/templates:
+    get:
+      tags: [Intelligence]
+      summary: Listar templates de feedback
+      parameters:
+        - in: query
+          name: active_only
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Lista de templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnalystFeedbackTemplateResponse'
+    post:
+      tags: [Intelligence]
+      summary: Criar template de feedback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnalystFeedbackTemplateCreateRequest'
+      responses:
+        '200':
+          description: Template criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalystFeedbackTemplateResponse'
+  /api/v1/intelligence/feedback/{feedback_id}/read:
+    post:
+      tags: [Intelligence]
+      summary: Marcar feedback como lido
+      parameters:
+        - in: path
+          name: feedback_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkFeedbackReadRequest'
+      responses:
+        '200':
+          description: Feedback marcado como lido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          description: Feedback não encontrado
+  /api/v1/intelligence/analytics/overview:
+    get:
+      tags: [Intelligence]
+      summary: Overview analítico
+      responses:
+        '200':
+          description: Métricas básicas do dashboard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardOverview'
+  /api/v1/intelligence/analytics/observations-by-day:
+    get:
+      tags: [Intelligence]
+      summary: Serie temporal de observacoes
+      parameters:
+        - in: query
+          name: days
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 7
+      responses:
+        '200':
+          description: Contagem por dia
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ObservationCountByDay'
+  /api/v1/intelligence/analytics/top-plates:
+    get:
+      tags: [Intelligence]
+      summary: Placas com maior volume de passagens
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Ranking de placas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TopPlateItem'
+  /api/v1/intelligence/analytics/unit-performance:
+    get:
+      tags: [Intelligence]
+      summary: Indicadores por unidade
+      responses:
+        '200':
+          description: Performance por unidade
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UnitPerformanceItem'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ObservationId:
+      in: path
+      name: observation_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    UserRole:
+      type: string
+      enum: [field_agent, intelligence, supervisor, admin]
+    SyncStatus:
+      type: string
+      enum: [pending, syncing, completed, failed]
+    SuspicionLevel:
+      type: string
+      enum: [low, medium, high]
+    UrgencyLevel:
+      type: string
+      enum: [monitor, intelligence, approach]
+    SuspicionReason:
+      type: string
+      enum:
+        - stolen_vehicle
+        - suspicious_behavior
+        - wanted_plate
+        - unusual_hours
+        - known_associate
+        - drug_trafficking
+        - weapons
+        - gang_activity
+        - other
+    ReviewStatus:
+      type: string
+      enum: [pending, confirmed, discarded, monitoring]
+    GeolocationPoint:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+        longitude:
+          type: number
+        accuracy:
+          type: number
+          nullable: true
+    User:
+      type: object
+      required: [id, email, full_name, role, is_active, is_verified, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        badge_number:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/UserRole'
+        unit_id:
+          type: string
+          format: uuid
+          nullable: true
+        unit_name:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        is_verified:
+          type: boolean
+        last_login:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UserLogin:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+        device_id:
+          type: string
+          nullable: true
+        device_model:
+          type: string
+          nullable: true
+        os_version:
+          type: string
+          nullable: true
+        app_version:
+          type: string
+          nullable: true
+    TokenResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+        user:
+          $ref: '#/components/schemas/User'
+    PlateReadCreate:
+      type: object
+      required: [ocr_raw_text, ocr_confidence]
+      properties:
+        ocr_raw_text:
+          type: string
+        ocr_confidence:
+          type: number
+        ocr_engine:
+          type: string
+        image_base64:
+          type: string
+          nullable: true
+        image_width:
+          type: integer
+          nullable: true
+        image_height:
+          type: integer
+          nullable: true
+        processing_time_ms:
+          type: integer
+          nullable: true
+    PlateReadResponse:
+      type: object
+      required: [id, observation_id, ocr_raw_text, ocr_confidence, ocr_engine, processed_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        observation_id:
+          type: string
+          format: uuid
+        ocr_raw_text:
+          type: string
+        ocr_confidence:
+          type: number
+        ocr_engine:
+          type: string
+        image_url:
+          type: string
+          nullable: true
+        image_hash:
+          type: string
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+        processing_time_ms:
+          type: integer
+          nullable: true
+    VehicleObservationCreate:
+      type: object
+      required: [plate_number, observed_at_local, location, device_id, app_version]
+      properties:
+        client_id:
+          type: string
+          nullable: true
+        plate_number:
+          type: string
+        plate_state:
+          type: string
+          nullable: true
+        plate_country:
+          type: string
+          default: BR
+        observed_at_local:
+          type: string
+          format: date-time
+        location:
+          $ref: '#/components/schemas/GeolocationPoint'
+        heading:
+          type: number
+          nullable: true
+        speed:
+          type: number
+          nullable: true
+        vehicle_color:
+          type: string
+          nullable: true
+        vehicle_type:
+          type: string
+          nullable: true
+        vehicle_model:
+          type: string
+          nullable: true
+        vehicle_year:
+          type: integer
+          nullable: true
+        device_id:
+          type: string
+        plate_read:
+          $ref: '#/components/schemas/PlateReadCreate'
+        image_base64:
+          type: string
+          nullable: true
+        connectivity_type:
+          type: string
+          nullable: true
+        app_version:
+          type: string
+    InstantFeedback:
+      type: object
+      required: [has_alert, previous_observations_count, is_monitored, intelligence_interest]
+      properties:
+        has_alert:
+          type: boolean
+        alert_level:
+          type: string
+          nullable: true
+        alert_title:
+          type: string
+          nullable: true
+        alert_message:
+          type: string
+          nullable: true
+        previous_observations_count:
+          type: integer
+        is_monitored:
+          type: boolean
+        intelligence_interest:
+          type: boolean
+        guidance:
+          type: string
+          nullable: true
+        state_registry_status:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Resultado da consulta estadual (ou fallback sem conexao)
+        prior_suspicion_context:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Contexto de suspeicoes previas para a placa
+        requires_suspicion_confirmation:
+          type: boolean
+          description: Indica se existe suspeicao previa que deve ser confirmada na abordagem
+    ApproachConfirmationRequest:
+      type: object
+      required: [confirmed_suspicion]
+      properties:
+        confirmed_suspicion:
+          type: boolean
+        approach_outcome:
+          type: string
+          default: approached
+          maxLength: 100
+        notes:
+          type: string
+          nullable: true
+          maxLength: 2000
+        approached_at_local:
+          type: string
+          format: date-time
+        location:
+          $ref: '#/components/schemas/GeolocationPoint'
+          nullable: true
+    ApproachConfirmationResponse:
+      type: object
+      required:
+        - observation_id
+        - plate_number
+        - confirmed_suspicion
+        - approach_outcome
+        - notified_original_agent
+        - processed_at
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        plate_number:
+          type: string
+        confirmed_suspicion:
+          type: boolean
+        approach_outcome:
+          type: string
+        notified_original_agent:
+          type: boolean
+        original_agent_id:
+          type: string
+          format: uuid
+          nullable: true
+        original_agent_name:
+          type: string
+          nullable: true
+        feedback_event_id:
+          type: string
+          format: uuid
+          nullable: true
+        processed_at:
+          type: string
+          format: date-time
+    VehicleObservationResponse:
+      type: object
+      required:
+        - id
+        - plate_number
+        - plate_country
+        - observed_at_local
+        - location
+        - sync_status
+        - sync_attempts
+        - agent_id
+        - agent_name
+        - device_id
+        - created_at
+        - updated_at
+        - plate_reads
+      properties:
+        id:
+          type: string
+          format: uuid
+        client_id:
+          type: string
+          nullable: true
+        plate_number:
+          type: string
+        plate_state:
+          type: string
+          nullable: true
+        plate_country:
+          type: string
+        observed_at_local:
+          type: string
+          format: date-time
+        observed_at_server:
+          type: string
+          format: date-time
+          nullable: true
+        location:
+          $ref: '#/components/schemas/GeolocationPoint'
+        location_accuracy:
+          type: number
+          nullable: true
+        heading:
+          type: number
+          nullable: true
+        speed:
+          type: number
+          nullable: true
+        vehicle_color:
+          type: string
+          nullable: true
+        vehicle_type:
+          type: string
+          nullable: true
+        vehicle_model:
+          type: string
+          nullable: true
+        vehicle_year:
+          type: integer
+          nullable: true
+        sync_status:
+          $ref: '#/components/schemas/SyncStatus'
+        sync_attempts:
+          type: integer
+        synced_at:
+          type: string
+          format: date-time
+          nullable: true
+        metadata_snapshot:
+          type: object
+          additionalProperties: true
+          nullable: true
+        agent_id:
+          type: string
+          format: uuid
+        agent_name:
+          type: string
+        device_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        plate_reads:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlateReadResponse'
+        instant_feedback:
+          $ref: '#/components/schemas/InstantFeedback'
+    ObservationHistoryItem:
+      type: object
+      required: [id, plate_number, observed_at_local, location, sync_status, has_feedback, has_suspicion]
+      properties:
+        id:
+          type: string
+          format: uuid
+        client_id:
+          type: string
+          nullable: true
+        plate_number:
+          type: string
+        observed_at_local:
+          type: string
+          format: date-time
+        location:
+          $ref: '#/components/schemas/GeolocationPoint'
+        sync_status:
+          $ref: '#/components/schemas/SyncStatus'
+        has_feedback:
+          type: boolean
+        has_suspicion:
+          type: boolean
+    ObservationHistoryResponse:
+      type: object
+      required: [items, pending_sync_count, total_count]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ObservationHistoryItem'
+        pending_sync_count:
+          type: integer
+        total_count:
+          type: integer
+    SuspicionReportCreate:
+      type: object
+      required: [observation_client_id, reason, level, urgency]
+      properties:
+        observation_client_id:
+          type: string
+        reason:
+          $ref: '#/components/schemas/SuspicionReason'
+        level:
+          $ref: '#/components/schemas/SuspicionLevel'
+        urgency:
+          $ref: '#/components/schemas/UrgencyLevel'
+        notes:
+          type: string
+          nullable: true
+        image_base64:
+          type: string
+          nullable: true
+        audio_base64:
+          type: string
+          nullable: true
+        audio_duration_seconds:
+          type: integer
+          nullable: true
+    SuspicionReportResponse:
+      type: object
+      required: [id, observation_id, reason, level, urgency, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        observation_id:
+          type: string
+          format: uuid
+        reason:
+          $ref: '#/components/schemas/SuspicionReason'
+        level:
+          $ref: '#/components/schemas/SuspicionLevel'
+        urgency:
+          $ref: '#/components/schemas/UrgencyLevel'
+        notes:
+          type: string
+          nullable: true
+        image_url:
+          type: string
+          nullable: true
+        audio_url:
+          type: string
+          nullable: true
+        audio_duration_seconds:
+          type: integer
+          nullable: true
+        system_relevance_score:
+          type: number
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SyncItem:
+      type: object
+      required: [entity_type, entity_local_id, operation, payload, created_at_local]
+      properties:
+        entity_type:
+          type: string
+        entity_local_id:
+          type: string
+        operation:
+          type: string
+          enum: [create, update]
+        payload:
+          type: object
+          additionalProperties: true
+        payload_hash:
+          type: string
+          nullable: true
+        created_at_local:
+          type: string
+          format: date-time
+    SyncBatchRequest:
+      type: object
+      required: [device_id, app_version, items]
+      properties:
+        device_id:
+          type: string
+        app_version:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncItem'
+        client_timestamp:
+          type: string
+          format: date-time
+    SyncResult:
+      type: object
+      required: [entity_local_id, status]
+      properties:
+        entity_local_id:
+          type: string
+        entity_server_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          $ref: '#/components/schemas/SyncStatus'
+        error:
+          type: string
+          nullable: true
+        synced_at:
+          type: string
+          format: date-time
+          nullable: true
+    SyncBatchResponse:
+      type: object
+      required: [processed_count, success_count, failed_count, results, server_timestamp, pending_feedback]
+      properties:
+        processed_count:
+          type: integer
+        success_count:
+          type: integer
+        failed_count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncResult'
+        server_timestamp:
+          type: string
+          format: date-time
+        pending_feedback:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    IntelligenceQueueItem:
+      type: object
+      required:
+        - observation_id
+        - plate_number
+        - observed_at
+        - location
+        - agent_name
+        - suspicion_reason
+        - suspicion_level
+        - urgency
+        - previous_observations_count
+        - is_monitored
+        - has_image
+        - added_to_queue_at
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        plate_number:
+          type: string
+        observed_at:
+          type: string
+          format: date-time
+        location:
+          $ref: '#/components/schemas/GeolocationPoint'
+        agent_name:
+          type: string
+        unit_name:
+          type: string
+          nullable: true
+        suspicion_reason:
+          $ref: '#/components/schemas/SuspicionReason'
+        suspicion_level:
+          $ref: '#/components/schemas/SuspicionLevel'
+        urgency:
+          $ref: '#/components/schemas/UrgencyLevel'
+        suspicion_notes:
+          type: string
+          nullable: true
+        previous_observations_count:
+          type: integer
+        is_monitored:
+          type: boolean
+        has_image:
+          type: boolean
+        added_to_queue_at:
+          type: string
+          format: date-time
+    IntelligenceReviewCreate:
+      type: object
+      required: [observation_id, status, justification]
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ReviewStatus'
+        justification:
+          type: string
+        reclassified_reason:
+          $ref: '#/components/schemas/SuspicionReason'
+        reclassified_level:
+          $ref: '#/components/schemas/SuspicionLevel'
+        reclassified_urgency:
+          $ref: '#/components/schemas/UrgencyLevel'
+        occurrence_number:
+          type: string
+          nullable: true
+        occurrence_url:
+          type: string
+          nullable: true
+        send_feedback:
+          type: boolean
+        feedback_title:
+          type: string
+          nullable: true
+        feedback_message:
+          type: string
+          nullable: true
+        recommended_action:
+          type: string
+          nullable: true
+    IntelligenceReviewResponse:
+      type: object
+      required: [id, observation_id, reviewer_id, reviewer_name, status, justification, reviewed_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        observation_id:
+          type: string
+          format: uuid
+        reviewer_id:
+          type: string
+          format: uuid
+        reviewer_name:
+          type: string
+        status:
+          $ref: '#/components/schemas/ReviewStatus'
+        justification:
+          type: string
+        reviewed_at:
+          type: string
+          format: date-time
+        reclassified_reason:
+          $ref: '#/components/schemas/SuspicionReason'
+        reclassified_level:
+          $ref: '#/components/schemas/SuspicionLevel'
+        reclassified_urgency:
+          $ref: '#/components/schemas/UrgencyLevel'
+        occurrence_number:
+          type: string
+          nullable: true
+        occurrence_url:
+          type: string
+          nullable: true
+    FeedbackForAgent:
+      type: object
+      required: [feedback_id, observation_id, plate_number, feedback_type, title, message, sent_at, is_read, reviewer_name]
+      properties:
+        feedback_id:
+          type: string
+          format: uuid
+        observation_id:
+          type: string
+          format: uuid
+        plate_number:
+          type: string
+        feedback_type:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        recommended_action:
+          type: string
+          nullable: true
+        sent_at:
+          type: string
+          format: date-time
+        is_read:
+          type: boolean
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        reviewer_name:
+          type: string
+    AnalystFeedbackCreateRequest:
+      type: object
+      required: [feedback_type, title]
+      properties:
+        observation_id:
+          type: string
+          format: uuid
+          nullable: true
+        target_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        target_team_label:
+          type: string
+          nullable: true
+        feedback_type:
+          type: string
+        sensitivity_level:
+          type: string
+          default: operational
+        title:
+          type: string
+        message:
+          type: string
+          nullable: true
+        template_id:
+          type: string
+          format: uuid
+          nullable: true
+    AnalystFeedbackResponse:
+      type: object
+      required:
+        - id
+        - analyst_id
+        - feedback_type
+        - sensitivity_level
+        - title
+        - message
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        observation_id:
+          type: string
+          format: uuid
+          nullable: true
+        analyst_id:
+          type: string
+          format: uuid
+        analyst_name:
+          type: string
+          nullable: true
+        target_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        target_team_label:
+          type: string
+          nullable: true
+        feedback_type:
+          type: string
+        sensitivity_level:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    AnalystFeedbackTemplateCreateRequest:
+      type: object
+      required: [name, feedback_type, body_template]
+      properties:
+        name:
+          type: string
+        feedback_type:
+          type: string
+        sensitivity_level:
+          type: string
+          default: operational
+        body_template:
+          type: string
+        is_active:
+          type: boolean
+          default: true
+    AnalystFeedbackTemplateResponse:
+      type: object
+      required:
+        - id
+        - created_by
+        - name
+        - feedback_type
+        - sensitivity_level
+        - body_template
+        - is_active
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+          format: uuid
+        created_by_name:
+          type: string
+          nullable: true
+        name:
+          type: string
+        feedback_type:
+          type: string
+        sensitivity_level:
+          type: string
+        body_template:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MarkFeedbackReadRequest:
+      type: object
+      properties:
+        feedback_id:
+          type: string
+          format: uuid
+          nullable: true
+        read_at:
+          type: string
+          format: date-time
+    ObservationCountByDay:
+      type: object
+      required: [date, count]
+      properties:
+        date:
+          type: string
+          format: date
+        count:
+          type: integer
+    TopPlateItem:
+      type: object
+      required: [plate_number, observation_count, suspicion_count]
+      properties:
+        plate_number:
+          type: string
+        observation_count:
+          type: integer
+        suspicion_count:
+          type: integer
+    UnitPerformanceItem:
+      type: object
+      required: [unit_id, unit_name, observation_count, confirmation_rate]
+      properties:
+        unit_id:
+          type: string
+        unit_name:
+          type: string
+        observation_count:
+          type: integer
+        confirmation_rate:
+          type: number
+    DashboardOverview:
+      type: object
+      required:
+        - total_observations
+        - today_observations
+        - pending_reviews
+        - active_alerts
+        - confirmed_suspicions
+        - discarded_suspicions
+        - avg_response_time_hours
+        - ocr_correction_rate
+      properties:
+        total_observations:
+          type: integer
+        today_observations:
+          type: integer
+        pending_reviews:
+          type: integer
+        active_alerts:
+          type: integer
+        confirmed_suspicions:
+          type: integer
+        discarded_suspicions:
+          type: integer
+        avg_response_time_hours:
+          type: number
+        ocr_correction_rate:
+          type: number
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string

@@ -1,0 +1,119 @@
+# Custom Configuration for FARO Project
+# Updated 2026-04-30 - Enhanced with new infrastructure scripts
+# Adjusted for FARO's multi-component architecture
+
+# Custom semantic clusters for FARO
+custom_clusters:
+  - name: "server_core"
+    patterns: ["server-core/.*"]
+    description: "Core server application"
+  
+  - name: "database"
+    patterns: ["database/.*"]
+    description: "Database schema, migrations, seeds"
+  
+  - name: "web_console"
+    patterns: ["web-intelligence-console/.*"]
+    description: "Web intelligence console"
+  
+  - name: "mobile_agent"
+    patterns: ["mobile-agent-field/.*"]
+    description: "Mobile agent field application"
+  
+  - name: "analytics_dashboard"
+    patterns: ["analytics-dashboard/.*"]
+    description: "Analytics dashboard standalone"
+  
+  - name: "infrastructure"
+    patterns: ["infra/.*", "pgbouncer/.*", "prometheus/.*"]
+    description: "Infrastructure components"
+  
+  - name: "scripts"
+    patterns: ["scripts/.*"]
+    description: "Utility scripts"
+
+# Custom priority levels for FARO
+custom_priorities:
+  - name: "server_core"
+    patterns: ["server-core/.*"]
+    order: 1  # Highest priority - core application
+  
+  - name: "database"
+    patterns: ["database/.*"]
+    order: 2  # Database is critical
+  
+  - name: "infrastructure"
+    patterns: ["infra/.*", "pgbouncer/.*"]
+    order: 3  # Infrastructure is important
+  
+  - name: "web_console"
+    patterns: ["web-intelligence-console/.*"]
+    order: 5  # Web console
+  
+  - name: "mobile_agent"
+    patterns: ["mobile-agent-field/.*"]
+    order: 6  # Mobile agent
+  
+  - name: "analytics_dashboard"
+    patterns: ["analytics-dashboard/.*"]
+    order: 7  # Analytics dashboard
+  
+  - name: "scripts"
+    patterns: ["scripts/.*"]
+    order: 10  # Scripts are less critical
+  
+  - name: "docs"
+    patterns: ["docs/.*", "INSTALL.md"]
+    order: 15  # Documentation
+
+# Minification adjustments for FARO
+minification:
+  # FARO-specific patterns to preserve
+  additional_preserve_patterns:
+    - "TODO"
+    - "FIXME"
+    - "HACK"
+    - "NOTE"
+    - "WARNING"
+    - "IMPORTANT"
+    - "CRITICAL"
+    - "SECURITY"
+    - "AUTH"
+    - "MIGRATION"
+    - "SEED"
+    - "ADMIN"
+    - "ALGORITHM"
+    - "VALIDATION"
+    - "SUSPICION"
+    - "CONVOY"
+    - "ROAMING"
+    - "INTERCEPT"
+    - "WATCHLIST"
+    - "HOTSPOT"
+    - "POSTGIS"
+  
+  # Adjust aggressiveness - FARO is complex, be conservative
+  aggressiveness: low  # low, medium, high
+
+# Processing settings for FARO
+processing:
+  # FARO has many files, increase workers
+  max_workers: 8
+  
+  # FARO has large files, increase threshold
+  compression_threshold: 20480  # 20KB
+  
+  # FARO is complex, increase capacity
+  target_capacity: 100000  # 100KB
+  
+  # Exclude patterns specific to FARO
+  exclude_patterns:
+    - "*.pyc"
+    - "__pycache__"
+    - "*.log"
+    - "*.tmp"
+    - "node_modules"
+    - ".git"
+    - ".venv"
+    - "venv"
+    - "env"

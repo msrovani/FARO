@@ -1,0 +1,116 @@
+clusters:
+  description: JavaScript modules
+  name: js_modules
+  patterns:
+  - .*\.js$
+  - .*\.jsx$
+custom:
+  custom_clusters:
+  - description: Core server application
+    name: server_core
+    patterns:
+    - server-core/.*
+  - description: Database schema, migrations, seeds
+    name: database
+    patterns:
+    - database/.*
+  - description: Web intelligence console
+    name: web_console
+    patterns:
+    - web-intelligence-console/.*
+  - description: Mobile agent field application
+    name: mobile_agent
+    patterns:
+    - mobile-agent-field/.*
+  - description: Analytics dashboard standalone
+    name: analytics_dashboard
+    patterns:
+    - analytics-dashboard/.*
+  - description: Infrastructure components
+    name: infrastructure
+    patterns:
+    - infra/.*
+    - pgbouncer/.*
+    - prometheus/.*
+  - description: Utility scripts
+    name: scripts
+    patterns:
+    - scripts/.*
+  custom_priorities:
+  - name: server_core
+    order: 1
+    patterns:
+    - server-core/.*
+  - name: database
+    order: 2
+    patterns:
+    - database/.*
+  - name: infrastructure
+    order: 3
+    patterns:
+    - infra/.*
+    - pgbouncer/.*
+  - name: web_console
+    order: 5
+    patterns:
+    - web-intelligence-console/.*
+  - name: mobile_agent
+    order: 6
+    patterns:
+    - mobile-agent-field/.*
+  - name: analytics_dashboard
+    order: 7
+    patterns:
+    - analytics-dashboard/.*
+  - name: scripts
+    order: 10
+    patterns:
+    - scripts/.*
+  - name: docs
+    order: 15
+    patterns:
+    - docs/.*
+    - INSTALL.md
+  minification:
+    additional_preserve_patterns:
+    - TODO
+    - FIXME
+    - HACK
+    - NOTE
+    - WARNING
+    - IMPORTANT
+    - CRITICAL
+    - SECURITY
+    - AUTH
+    - MIGRATION
+    - SEED
+    - ADMIN
+    - ALGORITHM
+    - VALIDATION
+    - SUSPICION
+    - CONVOY
+    - ROAMING
+    - INTERCEPT
+    - WATCHLIST
+    - HOTSPOT
+    - POSTGIS
+    aggressiveness: low
+  processing:
+    compression_threshold: 20480
+    exclude_patterns:
+    - '*.pyc'
+    - __pycache__
+    - '*.log'
+    - '*.tmp'
+    - node_modules
+    - .git
+    - .venv
+    - venv
+    - env
+    max_workers: 8
+    target_capacity: 100000
+language: javascript
+priorities:
+  docs_priority: 10
+  frontend_priority: 5
+  testing_priority: 20

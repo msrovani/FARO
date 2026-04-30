@@ -1,0 +1,11 @@
+# SUPERDEV 2.0 - Token Optimization Dependencies
+# Based on TabNews article insights (Nexor tool)
+
+# Token counting (precise token counting using OpenAI's tokenizer)
+tiktoken>=0.5.0
+
+# YAML configuration parsing
+PyYAML>=6.0
+
+# Note: ThreadPoolExecutor is built-in to Python (concurrent.futures)
+# Note: gzip and base64 are built-in to Python

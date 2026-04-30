@@ -1,0 +1,44 @@
+# Minification Configuration
+# Controls code minification for token optimization
+
+minification:
+  enabled: true
+  
+  # What to remove
+  remove_docstrings: true
+  remove_comments: true
+  remove_whitespace: true
+  
+  # Important comment patterns to preserve
+  preserve_patterns:
+    - "TODO"
+    - "FIXME"
+    - "HACK"
+    - "XXX"
+    - "NOTE"
+    - "WARNING"
+    - "lifetime"
+    - "concurrency"
+    - "race condition"
+    - "thread safety"
+    - "atomic"
+    - "lock"
+    - "mutex"
+    - "deadlock"
+    - "critical"
+    - "IMPORTANT"
+  
+  # File extensions to minify
+  target_extensions:
+    - ".py"
+    - ".js"
+    - ".ts"
+    - ".jsx"
+    - ".tsx"
+    - ".java"
+    - ".go"
+    - ".rs"
+    - ".c"
+    - ".cpp"
+    - ".h"
+    - ".hpp"

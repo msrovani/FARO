@@ -1,0 +1,45 @@
+# Semantic Clusters Configuration for FARO
+# Groups files by functionality/domain for better LLM understanding
+
+semantic_clusters:
+  server_core:
+    patterns:
+      - "server-core/.*"
+    description: "Core server application"
+
+  database:
+    patterns:
+      - "database/.*"
+    description: "Database schema, migrations, seeds"
+
+  web_console:
+    patterns:
+      - "web-intelligence-console/.*"
+    description: "Web intelligence console"
+
+  mobile_agent:
+    patterns:
+      - "mobile-agent-field/.*"
+    description: "Mobile agent field application"
+
+  infrastructure:
+    patterns:
+      - "infra/.*"
+      - "pgbouncer/.*"
+      - "prometheus/.*"
+    description: "Infrastructure components"
+
+  scripts:
+    patterns:
+      - "scripts/.*"
+    description: "Utility scripts"
+
+  docs:
+    patterns:
+      - "docs/.*"
+      - "INSTALL.md"
+    description: "Documentation"
+
+  default:
+    patterns: []
+    description: "Uncategorized files"

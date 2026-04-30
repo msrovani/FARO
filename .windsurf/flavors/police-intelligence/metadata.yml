@@ -1,0 +1,26 @@
+activation:
+  auto_activate: true
+  components:
+  - intelligent_route_analyzer
+  - threat_prediction_engine
+  - adaptive_mobile_agent
+  - quantum_patrol_optimizer
+  priority: high
+compatibility:
+  fastapi: '>=0.100.0'
+  postgresql: '>=13.0'
+  python: '>=3.8'
+dependencies:
+- hybrid_rag
+- advanced_learning_system
+- quantum_optimization
+- multi_agent_orchestrator
+description: Police intelligence with quantum optimization and autonomous decision
+  making
+heuristics:
+  adaptive_ui: true
+  quantum_enhancement: true
+  route_optimization: true
+  threat_prediction: true
+name: police-intelligence
+version: 2.0.0

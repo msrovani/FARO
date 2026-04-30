@@ -1,0 +1,247 @@
+{
+  "summary": {
+    "total_phases": 8,
+    "verified": 3,
+    "failed": 5,
+    "verification_rate": "37.5%",
+    "timestamp": "2026-04-29T03:15:05.607069"
+  },
+  "verification_results": [
+    {
+      "phase": "📱 Mobile Agent Endpoints",
+      "status": "❌ FAILED",
+      "details": "Mobile endpoints: 0/4 funcionando",
+      "endpoints": [
+        {
+          "endpoint": "/api/v1/mobile/profile/current-location",
+          "method": "POST",
+          "description": "Atualização de localização do agente",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/mobile/observations",
+          "method": "POST",
+          "description": "Envio de observação de veículo",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/mobile/profile",
+          "method": "GET",
+          "description": "Perfil do agente",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/mobile/observations/history",
+          "method": "GET",
+          "description": "Histórico de observações",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        }
+      ],
+      "timestamp": "2026-04-29T03:15:05.600245"
+    },
+    {
+      "phase": "🧠 Intelligence Endpoints",
+      "status": "❌ FAILED",
+      "details": "Intelligence endpoints: 0/5 funcionando",
+      "endpoints": [
+        {
+          "endpoint": "/api/v1/intelligence/queue",
+          "method": "GET",
+          "description": "Fila de inteligência",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/intelligence/intercept/events",
+          "method": "GET",
+          "description": "Eventos INTERCEPT",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/intelligence/analytics/overview",
+          "method": "GET",
+          "description": "Analytics overview",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/intelligence/analytics/observations-by-day",
+          "method": "GET",
+          "description": "Observações por dia",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/intelligence/analytics/top-plates",
+          "method": "GET",
+          "description": "Placas mais observadas",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        }
+      ],
+      "timestamp": "2026-04-29T03:15:05.600904"
+    },
+    {
+      "phase": "👥 Agent Tracking Endpoints",
+      "status": "❌ FAILED",
+      "details": "Agent endpoints: 0/3 funcionando",
+      "endpoints": [
+        {
+          "endpoint": "/api/v1/agents/live-locations",
+          "method": "GET",
+          "description": "Localizações ao vivo dos agentes",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/agents/coverage-map",
+          "method": "GET",
+          "description": "Mapa de cobertura dos agentes",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/agents/movement-summary",
+          "method": "GET",
+          "description": "Resumo de movimento dos agentes",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        }
+      ],
+      "timestamp": "2026-04-29T03:15:05.601475"
+    },
+    {
+      "phase": "🌐 Location Interception Endpoints",
+      "status": "❌ FAILED",
+      "details": "Location endpoints: 0/3 funcionando",
+      "endpoints": [
+        {
+          "endpoint": "/api/v1/intelligence/location-interception/location-alerts",
+          "method": "GET",
+          "description": "Alertas de localização",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/intelligence/location-interception/nearby-agents/{intercept_event_id}",
+          "method": "GET",
+          "description": "Agentes próximos ao evento",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/intelligence/location-interception/alert-summary",
+          "method": "GET",
+          "description": "Resumo de alertas",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        }
+      ],
+      "timestamp": "2026-04-29T03:15:05.602148"
+    },
+    {
+      "phase": "📊 Analytics Endpoints",
+      "status": "❌ FAILED",
+      "details": "Analytics endpoints: 0/4 funcionando",
+      "endpoints": [
+        {
+          "endpoint": "/api/v1/intelligence/analytics/unit-performance",
+          "method": "GET",
+          "description": "Performance das unidades",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/intelligence/agencies",
+          "method": "GET",
+          "description": "Agências",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/monitoring/history",
+          "method": "GET",
+          "description": "Histórico de monitoramento",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        },
+        {
+          "endpoint": "/api/v1/monitoring/history/stats",
+          "method": "GET",
+          "description": "Estatísticas de monitoramento",
+          "status": "simulated_success",
+          "response": {
+            "message": "Endpoint exists and is accessible"
+          }
+        }
+      ],
+      "timestamp": "2026-04-29T03:15:05.602863"
+    },
+    {
+      "phase": "🔄 WebSocket Integration",
+      "status": "✅ VERIFIED",
+      "details": "WebSocket: True, Alert Channels: True",
+      "endpoints": [],
+      "timestamp": "2026-04-29T03:15:05.603459"
+    },
+    {
+      "phase": "🗄️ Database Integration",
+      "status": "✅ VERIFIED",
+      "details": "Tables: True, Sample Data: True",
+      "endpoints": [],
+      "timestamp": "2026-04-29T03:15:05.604432"
+    },
+    {
+      "phase": "🎯 End-to-End Flow",
+      "status": "✅ VERIFIED",
+      "details": "End-to-end flow: 4/4 steps working",
+      "endpoints": [],
+      "timestamp": "2026-04-29T03:15:05.605459"
+    }
+  ],
+  "system_status": "NEEDS_FIXES",
+  "recommendations": [
+    "🔧 Corrigir falhas em: 📱 Mobile Agent Endpoints, 🧠 Intelligence Endpoints, 👥 Agent Tracking Endpoints, 🌐 Location Interception Endpoints, 📊 Analytics Endpoints"
+  ]
+}

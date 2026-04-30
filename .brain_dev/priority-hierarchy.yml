@@ -1,0 +1,52 @@
+# Priority Hierarchy Configuration for FARO
+# Orders files by importance for intelligent context truncation
+
+priority_hierarchy:
+  server_core:
+    patterns:
+      - "server-core/.*"
+    order: 1  # Highest priority - core application
+    description: "Core server application"
+
+  database:
+    patterns:
+      - "database/.*"
+    order: 2  # Database is critical
+    description: "Database schema, migrations, seeds"
+
+  infrastructure:
+    patterns:
+      - "infra/.*"
+      - "pgbouncer/.*"
+    order: 3  # Infrastructure is important
+    description: "Infrastructure components"
+
+  web_console:
+    patterns:
+      - "web-intelligence-console/.*"
+    order: 5  # Web console
+    description: "Web intelligence console"
+
+  mobile_agent:
+    patterns:
+      - "mobile-agent-field/.*"
+    order: 6  # Mobile agent
+    description: "Mobile agent field application"
+
+  scripts:
+    patterns:
+      - "scripts/.*"
+    order: 10  # Scripts are less critical
+    description: "Utility scripts"
+
+  docs:
+    patterns:
+      - "docs/.*"
+      - "INSTALL.md"
+    order: 15  # Documentation
+    description: "Documentation"
+
+  default:
+    patterns: []
+    order: 20  # Lowest priority
+    description: "Default priority for uncategorized files"

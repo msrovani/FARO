@@ -1,0 +1,1099 @@
+# F.A.R.O. Prometheus Alerts Guide
+# Guia completo de alertas Prometheus para F.A.R.O.
+# Inclui: triggers, insights, causas e soluções
+# =============================================================================
+
+# ESTRUTURA DE CADA ALERTA:
+# - name: Nome do alerta
+# - expr: Expressão PromQL
+# - for: Tempo antes de dispara
+# - severity: Nível (warning/critical)
+# - triggers_when: O que dispara o alerta
+# - insight: Diagnóstico do problema
+# - possible_causes: Causas possíveis
+# - solutions: Soluções viáveis (comandos, configs, etc.)
+# - auto_fix: Se há auto-correção disponível
+# =============================================================================
+
+groups:
+  # --------------------------------------------------------------------------
+  # GRUPO 1: CONNECTION POOLING (PgBouncer)
+  # --------------------------------------------------------------------------
+  - name: faro_connection_pooling
+    interval: 30s
+    rules:
+    
+    # Alerta 1.1: PgBouncer disponível mas não está em uso
+    - alert: PgBouncerAvailableNotInUse
+      expr: faro_pgbouncer_recommended == 1
+      for: 5m
+      severity: warning
+      triggers_when: |
+        PgBouncer foi detectado mas não está sendo usado pelo app.
+        Isso significa que conexões directas ao PostgreSQL estao sendo usadas.
+      insight: |
+        O servidor está conectando diretamente ao PostgreSQL ao inves do PgBouncer.
+        Em alta carga (>100 req/s), isso causa:
+        - Exaustao rapida do pool de conexoes do PostgreSQL
+        - Latencia elevada por criar conexoes frequentemente
+        - Alto overhead de CPU no banco de dados
+      possible_causes: |
+        1. Variavel PGBOUNCER_ENABLED nao foi definida como true
+        2. PgBouncer nao foi detectado no startup
+        3. Configuracao de banco alterou mas app nao foi reiniciado
+      solutions: |
+        # Solucao 1: Habilitar PgBouncer
+        export PGBOUNCER_ENABLED=true
+        export PGBOUNCER_HOST=localhost
+        export PGBOUNCER_PORT=6432
+        
+        # Solucao 2: Verificar status
+        curl http://localhost:8000/health | jq .pgbouncer
+        
+        # Solucao 3: Reiniciar app apos habilitar
+        # (o hot-swap so funciona se nao havera restart)
+      auto_fix: |
+        # Nao ha auto-fix - requer habilitacao manual
+        # mas o sistema faz fallback automatico se PgBouncer ficar indisponivel
+      annotations:
+        summary: "PgBouncer disponivel mas nao esta em uso"
+        description: |
+          {{ $labels.instance }}: PgBouncer detectado mas PGBOUNCER_ENABLED=false.
+          Impacto: performance limitada em alta carga.
+        runbook_url: "/docs/pgbouncer-setup"
+
+    # Alerta 1.2: PgBouncer pool exhausted
+    - alert: PgBouncerPoolExhausted
+      expr: faro_pgbouncer_available == 0
+      for: 1m
+      severity: critical
+      triggers_when: |
+        Todas as conexoes do PgBouncer estao em uso.
+        Clientes estao aguardando liberaçao de conexao.
+      insight: |
+        O pool de conexoes do PgBouncer estao 100% utilizado.
+        Novas requisicoes serao postas em fila ou rejeitadas.
+        Tempo de resposta vai aumentar significativamente.
+      possible_causes: |
+        1. many requests simultaneas (spike de trafego)
+        2. Queries lentas que seguram conexao por muito tempo
+        3. Pool muito pequeno (pgbouncer_default_pool_size)
+        4. Connection leak (conexao nao sendo liberada)
+      solutions: |
+        # Solucao 1: Aumentar pool temporariamente
+        # Via config .env:
+        export PGBOUNCER_DEFAULT_POOL_SIZE=50
+        
+        # Solucao 2: Verificar queries lentas
+        psql -h localhost -p 6432 -d pgbouncer -c "SHOW STATS"
+        
+        # Solucao 3: Cancelar queries lentas (se admin)
+        # CUIDADO: pode afetar operacoes em andamento
+        
+        # Solucao 4: Restart do PgBouncer (ultimo caso)
+        # pgbouncer -R pgbouncer.ini
+      auto_fix: |
+        # Nao ha auto-fix automatico
+        # Prometheus nao pode intervir em pool exhaustion
+      annotations:
+        summary: "PgBouncer pool exhausted"
+        description: |
+          {{ $labels.instance }}: Todas {{ $value }} conexoes em uso.
+          Clientes estao esperando ha {{ $for }}.
+
+    # Alerta 1.3: Clientes esperando por conexao
+    - alert: PgBouncerClientsWaiting
+      expr: faro_pgbouncer_waiting > 0
+      for: 30s
+      severity: warning
+      triggers_when: |
+        Clientes estao aguardando uma conexao ficar disponivel.
+      insight: |
+        Ha fila de espera por conexoes.
+        Tempo de resposta esta sendo impactado.
+      possible_causes: |
+        1. Pool proximo do limite (ver alerta 1.2)
+        2. Queries de longa duracao
+        3. many conexoes lentas
+      solutions: |
+        # Verificar o que esta causando espera
+        psql -h localhost -p 6432 -d pgbouncer -c "SHOW CLIENTS"
+        psql -h localhost -p 6432 -d pgbouncer -c "SHOW POOLS"
+      annotations:
+        summary: "Clientes esperando por conexao PgBouncer"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 2: DATABASE HEALTH
+  # --------------------------------------------------------------------------
+  - name: faro_database_health
+    interval: 30s
+    rules:
+
+    # Alerta 2.1: Database pool exhausted (SQLAlchemy)
+    - alert: DatabasePoolExhausted
+      expr: faro_db_pool_available == 0
+      for: 2m
+      severity: critical
+      triggers_when: |
+        Todas as conexoes do pool SQLAlchemy estao em uso.
+      insight: |
+        O application-level pool de conexoes esta 100%.
+        Novas requisicoes vao falhar por timeout.
+      possible_causes: |
+        1.database_pool_size muito pequeno
+        2. Queries lentas
+        3. Transaction nao finalizada (connection leak)
+      solutions: |
+        # Solucao: Verificar e ajustar config
+        # Em app/core/config.py:
+        database_pool_size: 50  # aumentar de 20
+        database_max_overflow: 20  # aumentar de 10
+        
+        # Verificar no health:
+        curl /health?format=json | jq .database_pool
+      annotations:
+        summary: "Database connection pool exhausted"
+
+    # Alerta 2.2: Database pool overflow
+    - alert: DatabasePoolOverflow
+      expr: faro_db_pool_overflow > 10
+      for: 5m
+      severity: warning
+      triggers_when: |
+        Conexoes overflow estao sendo criadas alem do pool base.
+      insight: |
+        O pool base (database_pool_size) nao estao sendo suficiente.
+        Overflow connections estao sendo usadas.
+      possible_causes: |
+        1. database_pool_size muito pequeno
+        2. many concurrently requests
+        3. Queries demorando muito
+      solutions: |
+        # Aumentar pool_size e max_overflow em .env:
+        # DATABASE_POOL_SIZE=30
+        # DATABASE_MAX_OVERFLOW=15
+        
+        # Se persistir, INSTALAR PgBouncer:
+        # Ver alerta 2.2.1 abaixo
+      annotations:
+        summary: "Database pool usando overflow"
+
+    # Alerta 2.2.1: DB sobrecarregado + PgBouncer OFF (SMART ALERT)
+    - alert: DBOverloadPgBouncerOff
+      expr: faro_db_needs_pgbouncer == 1
+      for: 3m
+      severity: critical
+      triggers_when: |
+        DB ESTA OVERLOADED e PgBouncer NAO ESTA EM USO.
+        ALERTA INTELIGENTE DETECTOU: conexao direta ao DB nao aguenta a carga!
+      insight: |
+        ⚠️ URGENCIA: O banco de dados direto nao esta dando conta.
+        
+        Diagnostico automatico:
+        - DB esta com overflow > 10 conexiones
+        - PgBouncer foi detectado mas NAO esta habilitado
+        
+        Isso significa: precisa habilitar PgBouncer AGORA!
+      possible_causes: |
+        1. PGBOUNCER_ENABLED=false (ou nao definido)
+        2. Pool SQLAlchemy muito pequeno
+        3. many requests simultaneas
+        4. Queries lentas
+      solutions: |
+        # URGENTE - Execute JA:
+        
+        # 1. Habilitar PgBouncer:
+        export PGBOUNCER_ENABLED=true
+        export PGBOUNCER_HOST=localhost
+        export PGBOUNCER_PORT=6432
+        export PGBOUNCER_DEFAULT_POOL_SIZE=50
+        
+        # 2. Aumentar pool local:
+        export DATABASE_POOL_SIZE=30
+        export DATABASE_MAX_OVERFLOW=15
+        
+        # 3. Reiniciar app:
+        # sudo systemctl restart faro
+        
+        # 4. Verificar se PgBouncer esta rodando:
+        # Windows: .\pgbouncer.exe pgbouncer-faro.ini
+        # Linux: sudo systemctl start pgbouncer
+        
+        # 5. Monitorar:
+        # curl /health | jq .pgbouncer
+      auto_fix: |
+        Nao ha auto-fix - requer acao manual IMEDIATA
+        Mas o sistema FARA hot-swap se PgBouncer for habilitado
+      annotations:
+        summary: "URGENTE: DB sobrecarregado + PgBouncer OFF"
+        description: |
+          {{ $labels.instance }}: DB overload detected + PgBouncer not in use.
+          
+          🔴 ACAO REQUERIDA:
+          1. Execute: set PGBOUNCER_ENABLED=true
+          2. Execute: set PGBOUNCER_DEFAULT_POOL_SIZE=50
+          3. Restart app
+          
+          Sem isso, performance continuara ruim e pode falhar completamente.
+
+    # Alerta 2.3: Database unhealthy
+    - alert: DatabaseUnhealthy
+      expr: absent(faro_db_pool_size) or faro_db_pool_size == 0
+      for: 1m
+      severity: critical
+      triggers_when: |
+        Health check do banco retornou erro ou naoha conexoes.
+      insight: |
+        O banco de dados pode estar fora do ar ou inacessivel.
+      possible_causes: |
+        1. PostgreSQL fora do ar
+        2. Rede/Firewall bloqueando
+        3. Credenciais invalidas
+        4. tablespace cheio
+      solutions: |
+        # Verificar conexao direta:
+        psql -h $DB_HOST -U faro -d faro
+        
+        # Ver logs do banco:
+        docker logs postgres
+        
+        # Verificar credenciais:
+        # Em .env: DATABASE_PASSWORD
+      annotations:
+        summary: "Database unhealthy - {{ $labels.error }}"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 3: HTTP PERFORMANCE
+  # --------------------------------------------------------------------------
+  - name: faro_http_performance
+    interval: 30s
+    rules:
+
+    # Alerta 3.1: Alta latência P95
+    - alert: HighLatencyP95
+      expr: histogram_quantile(0.95, rate(faro_http_request_duration_seconds_bucket[5m])) > 5
+      for: 5m
+      severity: warning
+      triggers_when: |
+        Latencia P95 esta acima de 5 segundos.
+      insight: |
+        5% das requisicoes estao lentas.
+        Experiencia do usuario impactada.
+      possible_causes: |
+        1. Banco de dados lento (queries nao otimizadas)
+        2. alta carga de CPU/memoria
+        3. Rede lenta
+        4. Queries N+1
+      solutions: |
+        # Verificar queries lentas:
+        # PostgreSQL: EXPLAIN ANALYZE ...
+        
+        # Verificar uso de recursos:
+        curl /metrics | grep process_
+        
+        # Adicionar indices:
+        # CREATE INDEX idx_watchlist_status ON watchlist(status);
+      annotations:
+        summary: "Latencia HTTP P95 alta: {{ $value }}s"
+
+    # Alerta 3.2: Latência crítica
+    - alert: CriticalLatencyP95
+      expr: histogram_quantile(0.95, rate(faro_http_request_duration_seconds_bucket[5m])) > 10
+      for: 2m
+      severity: critical
+      triggers_when: |
+        Latencia P95 acima de 10 segundos.
+      insight: |
+        Servidor estao com problemas severos de performance.
+      possible_causes: |
+        1. Database travado ou lento
+        2. Memory leak causando swap
+        3. many requests simultaneas
+      solutions: |
+        # Verificar processos:
+        top / htop
+        
+        # Verificar database:
+        psql -c "SELECT * FROM pg_stat_activity"
+        
+        # Restart do worker (ultimo caso):
+        kill -HUP $WORKER_PID
+      annotations:
+        summary: "Latencia critica: {{ $value }}s"
+
+    # Alerta 3.3: Alta taxa de erros 5xx
+    - alert: HighErrorRate5xx
+      expr: rate(faro_http_requests_total{status_code=~"5.."}[5m]) > 0.05
+      for: 2m
+      severity: warning
+      triggers_when: |
+        Mais de 5% das requisicoes estao retornando erro 5xx.
+      insight: |
+        Ha problemas no servidor.
+       可能是 banco fora ou service indisponivel.
+      possible_causes: |
+        1. Database error
+        2. Service exception nao tratada
+        3. Timeout
+      solutions: |
+        # Verificar logs:
+        curl /logs | grep ERROR
+        
+        # Verificar health:
+        curl /health
+      annotations:
+        summary: "Taxa de erros 5xx alta: {{ $value | humanizePercentage }}"
+
+    # Alerta 3.4: Taxa crítica de erros
+    - alert: CriticalErrorRate5xx
+      expr: rate(faro_http_requests_total{status_code=~"5.."}[5m]) > 0.20
+      for: 1m
+      severity: critical
+      triggers_when: |
+        Mais de 20% das requisicoes estao falhando.
+      insight: |
+        Servidor esto com falha grave.
+      solutions: |
+        # Verificar logs:
+        tail -f logs/app.log
+        
+        # Verificar crash:
+        dmesg | grep -i error
+        
+        # Restart:
+        systemctl restart faro
+      annotations:
+        summary: "Taxa de erros critica: {{ $value | humanizePercentage }}"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 4: CIRCUIT BREAKER
+  # --------------------------------------------------------------------------
+  - name: faro_circuit_breaker
+    interval: 30s
+    rules:
+
+    # Alerta 4.1: Circuit breaker aberto
+    - alert: CircuitBreakerOpen
+      expr: faro_circuit_breaker_current_state == 1
+      for: 1m
+      severity: critical
+      triggers_when: |
+        Circuit breaker para o endpoint estao ABERTO.
+        Novas requisicoes estao sendo rejeitadas.
+      insight: |
+        O servico de backend nao esta responde bem.
+        Protecao ativou para evitar sobrecarga.
+      possible_causes: |
+        1. Servico de destino fora do ar
+        2. Servico lento (timeout)
+        3. many falhas consecutivas
+        4. Database indisponivel
+      solutions: |
+        # Verificar qual servico:
+        curl /health | jq .circuit_breakers
+        
+        # Testar endpoint diretamente:
+        curl http://localhost:8000/api/v1/health
+        
+        # Verificar logs do servico:
+        docker logs service-name
+        
+        # Se servico OK, pode esperar e circuit fecha automatically:
+        # (timeout_seconds = 60s default)
+      annotations:
+        summary: "Circuit breaker ABERTO: {{ $labels.endpoint }}"
+
+    # Alerta 4.2: Circuit breaker metade aberto
+    - alert: CircuitBreakerHalfOpen
+      expr: faro_circuit_breaker_current_state == 2
+      for: 30s
+      severity: warning
+      triggers_when: |
+        Circuit breaker esta em modo de teste.
+        Esta verificando se servico recuperou.
+      insight: |
+        O servico pode estar se recuperando.
+        Algumas requisicoes podem falhar.
+      solutions: |
+        # Monitorar por mais tempo
+        # Se continuar OK, circuit fecha em ~2 success
+        # Se falhar, volta para OPEN
+      annotations:
+        summary: "Circuit breaker METADE ABERTO: {{ $labels.endpoint }}"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 5: CACHE
+  # --------------------------------------------------------------------------
+  - name: faro_cache
+    interval: 30s
+    rules:
+
+    # Alerta 5.1: Cache Redis indisponivel
+    - alert: RedisUnavailable
+      expr: absent(faro_cache_hit_total)
+      for: 2m
+      severity: warning
+      triggers_when: |
+        Nenhuma metricas de cache sendo gerada.
+      insight: |
+        Redis pode estar fora do ar ou inacessivel.
+      possible_causes: |
+        1. Redis parado
+        2. Rede bloquada
+        3. Credenciais erradas
+      solutions: |
+        # Testar Redis:
+        redis-cli ping
+        # deve retornar PONG
+        
+        # Verificar config:
+        # Em .env: REDIS_URL
+      annotations:
+        summary: "Redis indisponivel"
+
+    # Alerta 5.2: Cache hit ratio baixo
+    - alert: CacheLowHitRatio
+      expr: rate(faro_cache_hit_total[5m]) / (rate(faro_cache_hit_total[5m]) + rate(faro_cache_miss_total[5m])) < 0.5
+      for: 10m
+      severity: warning
+      triggers_when: |
+        Menos de 50% dos cache hits estao sendo acertos.
+      insight: |
+        Cache nao esta sendo efetivo.
+        Pode estar com TTL muito curto ou muito dados.
+      possible_causes: |
+        1. TTL muito curto
+        2. Dados que mudam muito
+        3. Cache muito pequeno (evictions)
+      solutions: |
+        # Aumentar TTL:
+        # Em decorators: @cached_query(ttl=3600)
+        
+        # Verificar hit ratio:
+        # curl /metrics | grep cache
+      annotations:
+        summary: "Cache hit ratio baixo: {{ $value | humanizePercentage }}"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 6: RESOURCE USAGE
+  # --------------------------------------------------------------------------
+  - name: faro_resources
+    interval: 30s
+    rules:
+
+    # Alerta 6.1: Alta CPU
+    - alert: HighCPU
+      expr: process_cpu_seconds_total > 0.8
+      for: 10m
+      severity: warning
+      triggers_when: |
+        CPU com alta utilizacao sustentada.
+      possible_causes: |
+        1. many requests
+        2. Processos pesados (OCR, algoritmos)
+        3. Loop infinito
+      solutions: |
+        # Verificar processos:
+        top
+        
+        # Configurar process_pool_max_workers menor
+      annotations:
+        summary: "CPU alta"
+
+    # Alerta 6.2: Memory alta
+    - alert: HighMemory
+      expr: process_resident_memory_bytes > 2e9
+      for: 5m
+      severity: warning
+      triggers_when: |
+        Memoria acima de 2GB.
+      possible_causes: |
+        1. Memory leak
+        2. Dados demais em memoria
+        3. many requests
+      solutions: |
+        # Verificar uso:
+        /metrics | grep process_
+        
+        # Restart se necessario:
+        # systemctl restart faro
+      annotations:
+        summary: "Memory alta: {{ $value | humanize }}"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 7: MOBILE SYNC
+  # --------------------------------------------------------------------------
+  - name: faro_mobile_sync
+    interval: 30s
+    rules:
+
+    # Alerta 7.1: Sync failures alto
+    - alert: MobileSyncHighFailureRate
+      expr: rate(faro_sync_batch_total{outcome="failed"}[10m]) > 0.1
+      for: 5m
+      severity: warning
+      triggers_when: |
+        Mais de 10% dos sync batch estao falhando.
+      insight: |
+        Agentes de campo podem ter problema para sincronizar.
+      possible_causes: |
+        1. Rede instavel
+        2. API timeout
+        3. Dados invalidos
+      solutions: |
+        # Verificar ultimos erros:
+        # No dashboard de sync
+        
+        # Verificar logs:
+        # docker logs faro | grep sync
+      annotations:
+        summary: "Mobile sync alta taxa de falha"
+
+    # Alerta 7.2: Sync pendente
+    - alert: MobileSyncPending
+      expr: faro_sync_items_total{status="pending"} > 100
+      for: 30m
+      severity: warning
+      triggers_when: |
+        many items pendentes para sync.
+      insight: |
+        Dados podem estar desatualizados nos dispositivos moveis.
+      solutions: |
+        # Verificar queue:
+        curl /intelligence/queue | jq length
+        
+        # Forcar sync manual:
+        # POST /mobile/sync/force
+      annotations:
+        summary: "Mobile sync pendente"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 8: ALGORITHMS
+  # --------------------------------------------------------------------------
+  - name: faro_algorithms
+    interval: 30s
+    rules:
+
+    # Alerta 8.1: Algoritmo falhou
+    - alert: AlgorithmExecutionFailed
+      expr: rate(faro_algorithm_execution_total{outcome="error"}[10m]) > 0
+      for: 1m
+      severity: warning
+      triggers_when: |
+        Algoritmo de previsao falhou.
+      insight: |
+        Predicoes de rota nao estao sendo geradas.
+      possible_causes: |
+        1. Dados insuficientes
+        2. Erro no modelo
+        3. Timeout
+      solutions: |
+        # Verificar logs:
+        # docker logs faro | grep algorithm
+        
+        # Verificar dados:
+        # SELECT count(*) FROM observations;
+      annotations:
+        summary: "Algoritmo falhou: {{ $labels.algorithm_type }}"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 9: USER CONNECTIVITY (Usabilidade Operacional)
+  # --------------------------------------------------------------------------
+  - name: faro_user_connectivity
+    interval: 30s
+    rules:
+
+    # Alerta 9.1: Muitos usuários offline
+    - alert: HighOfflineUsers
+      expr: faro_user_offline_total > 50
+      for: 15m
+      severity: warning
+      triggers_when: |
+        Mais de 50 usuarios estao offline simultaneamente.
+      insight: |
+        Muitos agentes de campo estao sem conexao.
+        Pode indicar problema de rede ou queda de infrastructure.
+      possible_causes: |
+        1. Queda de internet na base operacional
+        2. Problemas com operador de telefonia
+        3. Manutencao de rede nao comunicada
+        4. Falha no servidor de autenticacao
+      solutions: |
+        # Verificar status (Analytics Dashboard na porta 9002, 9000 e 9001 reservadas para MinIO):
+        curl http://localhost:9002/api/v1/metrics | jq .user_offline
+        
+        # Verificar logs de rede:
+        # docker logs faro | grep "connection"
+        
+        # Verificar servidor auth:
+        # curl http://localhost:8000/health
+      annotations:
+        summary: "Alta taxa de usuarios offline"
+
+    # Alerta 9.2: Qualidade de rede ruim
+    - alert: PoorNetworkQuality
+      expr: avg(faro_user_network_quality) < 2
+      for: 10m
+      severity: warning
+      triggers_when: |
+        Qualidade media da rede dos usuarios e inferior a 2 (poor/fair).
+      insight: |
+        Rede lenta pode causar falhas no sync e upload de dados.
+        Agentes podem ter dificuldades para enviar observacoes.
+      possible_causes: |
+        1. Rede 3G predominante
+        2. Area com sinal fraco
+        3. Muitos usuarios em mesma cell tower
+      solutions: |
+        # Verificar tipo de conexao predominante:
+        # curl /metrics | grep user_connectivity
+        
+        # Orientar agentes para WiFi institucional
+      annotations:
+        summary: "Qualidade de rede ruim"
+
+    # Alerta 9.3: Usuários 4G muito baixos
+    - alert: Low4GUsers
+      expr: faro_user_connectivity_type_total{connection_type="4g"} < 10
+      for: 30m
+      severity: warning
+      triggers_when: |
+        Menos de 10 usuarios conectados via 4G.
+      insight: |
+        Poucos usuarios em rede movel confiavel.
+        Policy 4G-first pode estar sendo ignorada.
+      solutions: |
+        # Verificar configuracao:
+        # Android: NetworkValidator
+        
+        # Forcar 4G:
+        # SyncPolicy.setRequiredNetwork(NetworkType.4G)
+      annotations:
+        summary: "Poucos usuarios em 4G"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 10: OCR ANALYTICS
+  # --------------------------------------------------------------------------
+  - name: faro_ocr_analytics
+    interval: 30s
+    rules:
+
+    # Alerta 10.1: OCR mobile taxa baixa
+    - alert: OCRMobileLowAccuracy
+      expr: rate(faro_ocr_mobile_total{outcome="success",confidence_bucket="low"}[5m]) > 0.3
+      for: 10m
+      severity: warning
+      triggers_when: |
+        Mais de 30% das operacoes OCR no mobile tem confianca baixa (<70%).
+      insight: |
+        Imagens enviadas do mobile estao com qualidade baixa.
+        Pode indicar problema de camera, luz, ou precisao do OCR local.
+      possible_causes: |
+        1. Camera com baixa qualidade
+        2. Ambiente com pouca luz
+        3. Placa danificada ou obscurecida
+        4. OCR local com modelo desatualizado
+      solutions: |
+        # Verificar modelo OCR:
+        # Android: ML Kit version
+        
+        # Orientar agente:
+        # - Usar flash
+        # - Posicionar bem a placa
+        # - Esperar estabilidade
+      annotations:
+        summary: "OCR mobile com baixa acuracia"
+
+    # Alerta 10.2: OCR server latência alta
+    - alert: OCRServerHighLatency
+      expr: rate(faro_ocr_latency_seconds_sum[5m]) / rate(faro_ocr_latency_seconds_count[5m]) > 2
+      for: 5m
+      severity: warning
+      triggers_when: |
+        Latencia media do OCR server-side ultrapassa 2 segundos.
+      insight: |
+        Tempo de resposta do OCR esta alto.
+        Pode indicar carga alta ou problema no servidor OCR.
+      possible_causes: |
+        1. Servidor OCR sobrecarregado
+        2. GPU não disponivel
+        3. Modelo muito grande
+      solutions: |
+        # Verificar GPU:
+        # nvidia-smi
+        
+        # Verificar carga:
+        # docker stats faro-ocr
+        
+        # Escalar OCR workers:
+        # docker-compose up --scale ocr=3
+      annotations:
+        summary: "OCR server com alta latencia"
+
+    # Alerta 10.3: Alta taxa de correção de OCR
+    - alert: OCRHighCorrectionRate
+      expr: rate(faro_ocr_correction_total[10m]) > 5
+      for: 30m
+      severity: warning
+      triggers_when: |
+        Mais de 5 medicoes por minuto estao sendo corrigidas.
+      insight: |
+        Taxa alta de correcoes indica OCR falhando frequentemente.
+        Impacto: perda de tempo do agente de campo.
+      possible_causes: |
+        1. Modelo OCR precisa de retreino
+        2. Imagens de baixa qualidade
+        3. Placas com formato nao comum
+      solutions: |
+        # Analisar tipos de correcao:
+        # curl /metrics | grep ocr_correction
+        
+        # Treinar modelo com dados reais:
+        # Collect corrected plates -> retrain model
+      annotations:
+        summary: "Alta taxa de correcao de OCR"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 11: ALERT OPERATIONS
+  # --------------------------------------------------------------------------
+  - name: faro_alert_operations
+    interval: 30s
+    rules:
+
+    # Alerta 11.1: Alertas críticos não reconhecidos
+    - alert: CriticalAlertNotAcknowledged
+      expr: sum(faro_alert_total{severity="critical"}) - sum(faro_alert_acknowledged_total) > 10
+      for: 1h
+      severity: critical
+      triggers_when: |
+        Mais de 10 alertas criticos pendentes de reconhecimento.
+      insight: |
+        Alertas importantes nao estao sendo tratados.
+        Risco operacional: situacoes criticas ignoradas.
+      possible_causes: |
+        1. Analista sobrecarregado
+        2. Sistema de notificacao falhando
+        3. Turnover baixo
+      solutions: |
+        # Verificar notificacoes:
+        # curl /alerts | jq '.[] | select(.severity=="critical" and .acknowledged==false)'
+        
+        # Escalonar:
+        # POST /alerts/escalate
+      annotations:
+        summary: "Alertas criticos pendentes"
+
+    # Alerta 11.2: Tempo de resolução alto
+    - alert: HighAlertResolutionTime
+      expr: histogram_quantile(0.95, rate(faro_alert_resolution_time_seconds_bucket[1h])) > 3600
+      for: 30m
+      severity: warning
+      triggers_when: |
+        Tempo P95 de resolucao de alertas excede 1 hora.
+      insight: |
+        Alertas estao demorando muito para serem resolvidos.
+        Eficiencia operacional abaixo do ideal.
+      solutions: |
+        # Analisar tempo por algoritmo:
+        # curl /metrics | grep alert_resolution
+        
+        # Priorizar alertasautomaticamente:
+        # Habilitar queue_auto_prioritization=true
+      annotations:
+        summary: "Tempo de resolucao de alertas alto"
+
+    # Alerta 11.3: Alertas por algoritmo desbalanceados
+    - alert: AlgorithmAlertImbalance
+      expr: (max(faro_alert_by_algorithm_total) - min(faro_alert_by_algorithm_total)) / max(faro_alert_by_algorithm_total) > 0.8
+      for: 1h
+      severity: warning
+      triggers_when: |
+        Um algoritmo esta gerando >80% dos alertas.
+      insight: |
+        Algoritmo pode estar com threshold muito baixo.
+        Risco: fatigue de alertas.
+      solutions: |
+        # Analisar distribuicao:
+        # curl /metrics | grep alert_by_algorithm
+        
+        # Ajustar thresholds:
+        # config.py: ALGORITHM_THRESHOLDS
+      annotations:
+        summary: "Desbalanceamento de alertas por algoritmo"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 12: SUSPICION ANALYTICS
+  # --------------------------------------------------------------------------
+  - name: faro_suspicion_analytics
+    interval: 30s
+    rules:
+
+    # Alerta 12.1: Baixa taxa de acerto de suspeita
+    - alert: LowSuspicionAccuracy
+      expr: rate(faro_suspicion_confirmed_total[1h]) / (rate(faro_suspicion_confirmed_total[1h]) + rate(faro_suspicion_rejected_total[1h])) < 0.5
+      for: 1h
+      severity: warning
+      triggers_when: |
+        Taxa de confirmacao de suspeitas inferior a 50%.
+      insight: |
+        Algoritmos gerando muitos falso positivos.
+        Agentes estao perdendo tempo com alertas desnecessarios.
+      possible_causes: |
+        1. Thresholds dos algoritmos muito baixos
+        2. Dados de treinamento desatualizados
+        3. Falta de contexto operacional
+      solutions: |
+        # Analisar rejeicoes por algoritmo:
+        # curl /metrics | grep suspicion_rejected
+        
+        # Ajustar thresholds:
+        # POST /config/algorithms/thresholds
+        
+        # Coletar mais dados para retreino
+      annotations:
+        summary: "Baixa taxa de acerto de suspeitas"
+
+    # Alerta 12.2: Alta reincidência de suspeita
+    - alert: HighSuspicionRecurrence
+      expr: rate(faro_suspicion_recurrence_total{recurrence_number="2"}[1h]) > 10
+      for: 1h
+      severity: warning
+      triggers_when: |
+        Mais de 10 reincidencias (2a abordagem) por hora.
+      insight: |
+        Mesma placa sendo abordada repetidamente.
+        Pode indicar: watchlist nao atualizada, algoritmo nao evoluindo, ou abordagem inefetiva.
+      possible_causes: |
+        1. Watchlist desatualizada
+        2. Score nao diminui apos abordagem
+        3. Agente nao entende feedback
+      solutions: |
+        # Verificar watchlist:
+        # GET /intelligence/watchlists
+        
+        # Verificar feedback recebido:
+        # GET /mobile/sync | jq '.feedback'
+        
+        # Atualizar scoreapos abordagem:
+        # POST /observations/{id}/approach-confirmation
+      annotations:
+        summary: "Alta reincidencia de suspeitas"
+
+    # Alerta 12.3: Severidade CRITICAL acumulada
+    - alert: CriticalSuspicionsAccumulated
+      expr: faro_suspicion_severity_current{severity="critical"} > 50
+      for: 30m
+      severity: critical
+      triggers_when: |
+        Mais de 50 suspeitas CRITICAL ativas.
+      insight: |
+        Grande volume de situacoes criticas nao tratadas.
+        Risco operacional elevado.
+      possible_causes: |
+        1. Evento operacional em andamento
+        2. Sistema de triagem sobrecarregado
+        3. Falta de recurso humano
+      solutions: |
+        # Priorizar fila:
+        # GET /intelligence/queue?sort=severity
+        
+        # Escalonar para outras unidades:
+        # POST /intelligence/escalate
+        
+        # Verificar eventos ativos:
+        # GET /analytics/events
+      annotations:
+        summary: "Acumulo de suspeitas criticas"
+
+    # Alerta 12.4: Baixa taxa de abordagem
+    - alert: LowApproachRate
+      expr: histogram_quantile(0.5, rate(faro_suspicion_approach_rate_bucket[24h])) < 0.3
+      for: 6h
+      severity: warning
+      triggers_when: |
+        Menos de 30% das suspeitas estao levando a abordagem.
+      insight: |
+        Suspeitas geradas nao estao sendo tratadas pelos agentes.
+        Pipeline operacional pode estar quebrado.
+      possible_causes: |
+        1. Agentes nao estao recebendo alertas
+        2. Notificacao push falhando
+        3. Agentes desativando notificacoes
+      solutions: |
+        # Verificar notificacoes:
+        # GET /analytics/notifications
+        
+        # Verificar dispositivos:
+        # GET /intelligence/devices
+        
+        # Forcar sync:
+        # POST /mobile/sync/trigger
+      annotations:
+        summary: "Baixa taxa de abordagem efetiva"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 13: SYNC OPERATIONS
+  # --------------------------------------------------------------------------
+  - name: faro_sync_operations
+    interval: 30s
+    rules:
+
+    # Alerta 13.1: Sync latência alta
+    - alert: SyncHighLatency
+      expr: histogram_quantile(0.95, rate(faro_sync_latency_seconds_bucket[5m])) > 120
+      for: 10m
+      severity: warning
+      triggers_when: |
+        Latencia P95 do sync excede 2 minutos.
+      insight: |
+        Sync esta muito lento.
+        Dados estao atrasando para chegar ao servidor.
+      possible_causes: |
+        1. Rede lenta (3G predominante)
+        2. Dados muito grandes
+        3. Servidor sobrecarregado
+      solutions: |
+        # Verificar tipo de conexao:
+        # curl /metrics | grep sync_upload{connection_type}
+        
+        # Reduzir tamanho:
+        # config: MAX_ASSET_SIZE
+        
+        # Verificar rede do agente:
+        # Android: NetworkValidator
+      annotations:
+        summary: "Alta latencia de sync"
+
+    # Alerta 13.2: Sync retry alto
+    - alert: SyncHighRetryRate
+      expr: rate(faro_sync_retry_total[5m]) > 10
+      for: 15m
+      severity: warning
+      triggers_when: |
+        Mais de 10 retries por minuto.
+      insight: |
+        Muitos.syncs estao falhando e tentando novamente.
+        Rede instavel ou servidor com problemas.
+      possible_causes: |
+        1. Rede instavel (wifi publica?)
+        2. Timeout muito curto
+        3. Servidor respondendo tarde
+      solutions: |
+        # Verificar rede:
+        # Android: NetworkValidator
+        
+        # Ajustar timeout:
+        # config: SYNC_TIMEOUT
+        
+        # Verificar logs:
+        # docker logs faro | grep "sync" | grep retry
+      annotations:
+        summary: "Alta taxa de retry de sync"
+
+    # Alerta 13.3: Feedback response time alto
+    - alert: FeedbackResponseTimeHigh
+      expr: histogram_quantile(0.95, rate(faro_feedback_response_time_seconds_bucket[24h])) > 14400
+      for: 6h
+      severity: warning
+      triggers_when: |
+        Tempo P95 entre suspeita e feedback excede 4 horas.
+      insight: |
+        Analistas estao demorando para dar feedback.
+        Agentes nao recebem retorno em tempo util.
+      possible_causes: |
+        1. Fila analitica sobrecarregada
+        2. Poucos analistas ativos
+        3. Priorizacao nao funcionando
+      solutions: |
+        # Verificar fila:
+        # GET /intelligence/queue | jq length
+        
+        # Ajustar priorizacao:
+        # config: queue_auto_prioritization_enabled=true
+        
+        # Alocar mais analistas
+      annotations:
+        summary: "Tempo de resposta de feedback alto"
+
+  # --------------------------------------------------------------------------
+  # GRUPO 14: BUSINESS INTELLIGENCE
+  # --------------------------------------------------------------------------
+  - name: faro_business_intelligence
+    interval: 60s
+    rules:
+
+    # Alerta 14.1: Baixa eficiência do agente
+    - alert: LowAgentEfficiency
+      expr: histogram_quantile(0.5, rate(faro_agent_efficiency_bucket[24h])) < 0.3
+      for: 24h
+      severity: warning
+      triggers_when: |
+        Eficiencia media do agente inferior a 30% em 24h.
+      insight: |
+        Agentes estao fazendo poucas abordagens produtivas.
+        Investimento de tempo nao esta retornando.
+      possible_causes: |
+        1. Agentes mal treinados
+        2. Suspeitas de baixa qualidade
+        3. Zona de operacao inadequada
+      solutions: |
+        # Analisar por agente:
+        # GET /analytics/agents/efficiency
+        
+        # Treinamento:
+        # - Padroes de abordagem
+        # - Interpretacao de feedback
+        
+        # Revisar zonas de operacao
+      annotations:
+        summary: "Baixa eficiencia operacional dos agentes"
+
+    # Alerta 14.2: Baixa qualidade de observação
+    - alert: LowObservationQuality
+      expr: histogram_quantile(0.5, rate(faro_observation_quality_score_bucket[24h])) < 50
+      for: 24h
+      severity: warning
+      triggers_when: |
+        Score de qualidade das observacoes inferior a 50/100.
+      insight: |
+        Observacoes estao com baixa qualidade.
+        Dados podem ser incompletos ou imprecisos.
+      possible_causes: |
+        1. Agentes com pressa
+        2. Falta de treinamento
+        3. OCR falhando muito
+      solutions: |
+        # Treinamento de agentes:
+        # - Como fazer boa observacao
+        # - Quando usar OCR
+        # - Importancia dos dados
+        
+        # Verificar OCR:
+        # metrics: ocr_correction_total
+      annotations:
+        summary: "Baixa qualidade de observacoes"
+
+    # Alerta 14.3: Storage usage alto
+    - alert: HighStorageUsage
+      expr: faro_asset_storage_usage_bytes / faro_asset_storage_max_bytes > 0.8
+      for: 24h
+      severity: warning
+      triggers_when: |
+        Armazenamento de assets usado em >80%.
+      insight: |
+        Storage esta se enchendo.
+        Em breve pode parar de aceitar uploads.
+      possible_causes: |
+        1. Politica de retencao nao aplicada
+        2. Limpeza nao automatizada
+        3. Crescimento orgânico acelerado
+      solutions: |
+        # Verificar espaco:
+        # df -h
+        
+        # Limpar dados antigos:
+        # DELETE FROM assets WHERE created_at < now() - 90 days
+        
+        # Aumentar storage
+      annotations:
+        summary: "Alto uso de armazenamento"
